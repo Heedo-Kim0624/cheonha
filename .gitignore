@@ -1,0 +1,64 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+*.so
+venv/
+.venv/
+env/
+
+# Django
+*.sqlite3
+db.sqlite3
+staticfiles/
+media/
+*.log
+
+# Node
+node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Docker
+docker-compose.override.yml
+
+# Secrets / Keys
+*.pem
+*.key
+*.crt
+
+# Test artifacts
+test-screenshots/
+test-results/
+playwright-report/
+e2e/
+
+# Claude Code
+.claude/
+
+# Misc
+*.xlsx
+*.html
+package-lock.json
+frontend/package-lock.json
+frontend/vite.config.js.timestamp-*
+package.json
+playwright.config.js

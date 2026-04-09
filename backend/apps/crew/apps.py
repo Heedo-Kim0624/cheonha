@@ -1,0 +1,7 @@
+from django.apps import AppConfig
+
+
+class CrewConfig(AppConfig):
+    default_auto_field = 'django.db.models.BigAutoField'
+    name = 'apps.crew'
+    verbose_name = '배송원 관리'

@@ -1,0 +1,247 @@
+천하운수 정산관리 시스템 - 프론트엔드 디렉토리 구조
+================================================
+
+frontend/
+│
+├── 📄 package.json                 ← 프로젝트 의존성 및 npm 스크립트
+├── 📄 index.html                   ← HTML 진입점
+├── 📄 vite.config.js              ← Vite 빌드 설정
+├── 📄 tailwind.config.js          ← Tailwind CSS 커스터마이징
+├── 📄 postcss.config.js           ← PostCSS 설정
+├── 📄 .env.example                ← 환경 변수 예시
+├── 📄 .gitignore                  ← Git 무시 파일
+│
+├── 📚 문서
+│   ├── README.md                  ← 프로젝트 개요 및 가이드
+│   ├── SETUP.md                   ← 상세 설정 및 개발 가이드
+│   ├── QUICKSTART.md              ← 빠른 시작 가이드
+│   ├── MANIFEST.md                ← 완성도 및 파일 목록
+│   └── STRUCTURE.txt              ← 이 파일
+│
+└── 📁 src/
+    │
+    ├── 📄 main.js                 ← Vue 앱 초기화 (Router, Pinia)
+    ├── 📄 App.vue                 ← 루트 컴포넌트
+    │
+    ├── 📁 router/
+    │   └── 📄 index.js            ← Vue Router 설정 (6개 라우트)
+    │       • /login         → LoginView
+    │       • /             → HomeView
+    │       • /dispatch     → DispatchView
+    │       • /crew         → CrewView
+    │       • /settlement   → SettlementView
+    │       • /region       → RegionView
+    │
+    ├── 📁 stores/                 ← Pinia 상태 관리 (7개)
+    │   ├── 📄 auth.js             ← 인증 스토어
+    │   ├── 📄 dashboard.js        ← 대시보드 스토어
+    │   ├── 📄 dispatch.js         ← 배차 스토어
+    │   ├── 📄 crew.js             ← 배송원 스토어
+    │   ├── 📄 settlement.js       ← 정산 스토어
+    │   ├── 📄 region.js           ← 권역 스토어
+    │   └── 📄 partner.js          ← 파트너사 스토어
+    │
+    ├── 📁 api/                    ← API 통신 레이어 (8개)
+    │   ├── 📄 client.js           ← Axios 인스턴스 (JWT, 에러 처리)
+    │   ├── 📄 auth.js             ← 인증 API
+    │   ├── 📄 dashboard.js        ← 대시보드 API
+    │   ├── 📄 dispatch.js         ← 배차 API
+    │   ├── 📄 crew.js             ← 배송원 API
+    │   ├── 📄 settlement.js       ← 정산 API
+    │   ├── 📄 region.js           ← 권역 API
+    │   └── 📄 partner.js          ← 파트너사 API
+    │
+    ├── 📁 components/
+    │   └── 📁 common/             ← 재사용 컴포넌트 (11개)
+    │       ├── 📄 AppLayout.vue        ← 메인 레이아웃
+    │       │   • 사이드바 (220px, 5개 네비)
+    │       │   • 탑바 (팀 필터, 날짜)
+    │       │   • 로그아웃
+    │       ├── 📄 KpiCard.vue          ← KPI 카드
+    │       │   • 수치, 변화율, 부설명
+    │       ├── 📄 BadgeComponent.vue   ← 배지
+    │       │   • 6가지 색상 (primary, success, danger, warning, info, gray)
+    │       ├── 📄 DataTable.vue        ← 데이터 테이블
+    │       │   • 정렬 기능
+    │       │   • 커스텀 셀 렌더링
+    │       ├── 📄 ModalDialog.vue      ← 모달 다이얼로그
+    │       │   • 헤더, 본문, 푸터
+    │       │   • Teleport 사용
+    │       ├── 📄 StepperBar.vue       ← 단계 표시기
+    │       │   • 다단계 진행 표시
+    │       ├── 📄 UploadZone.vue       ← 드래그 업로드
+    │       │   • 드래그 앤 드롭
+    │       │   • 파일 필터링
+    │       ├── 📄 InnerTabs.vue        ← 탭 네비게이션
+    │       │   • 페이지 내 탭
+    │       ├── 📄 ToastNotification.vue ← 토스트 알림
+    │       │   • 성공/에러/경고
+    │       │   • 자동 닫기
+    │       ├── 📄 FilterBar.vue        ← 필터 바
+    │       │   • 날짜 범위
+    │       │   • 드롭다운 필터
+    │       │   • 검색
+    │       └── 📄 WorkflowGuide.vue    ← 워크플로우 가이드
+    │           • 4단계 카드
+    │
+    ├── 📁 views/                  ← 페이지 컴포넌트 (6개)
+    │   ├── 📄 LoginView.vue            ← 로그인 페이지
+    │   │   • 분할 화면 (좌: 브랜딩, 우: 폼)
+    │   │   • 데모 계정 (demo@example.com / demo1234)
+    │   │
+    │   ├── 📄 HomeView.vue             ← 홈/대시보드
+    │   │   • 환영 배너 (시간대별 인사)
+    │   │   • 워크플로우 가이드
+    │   │   • 4개 KPI 카드
+    │   │   • 권역별 수익 테이블
+    │   │   • 최근 활동 타임라인
+    │   │
+    │   ├── 📄 DispatchView.vue         ← 배차 데이터 관리
+    │   │   • 탭 1: 업로드 (5단계)
+    │   │     - 파일 선택 → 검증 → 미리보기 → 완료
+    │   │   • 탭 2: 특근설정 (조별 비용)
+    │   │   • 탭 3: 업로드이력 (테이블)
+    │   │
+    │   ├── 📄 CrewView.vue             ← 배송원 관리
+    │   │   • 신규 배송원 감지 섹션
+    │   │   • 필터 바 (조, 권역, 검색)
+    │   │   • 배송원 테이블 (8개 열)
+    │   │   • 추가/수정/삭제 기능
+    │   │
+    │   ├── 📄 SettlementView.vue       ← 정산
+    │   │   • 탭 1: 전체정산 (테이블)
+    │   │   • 탭 2: 월별정산 (카드)
+    │   │   • 정산 생성 모달
+    │   │
+    │   └── 📄 RegionView.vue           ← 권역 관리
+    │       • 탭 1: 팀관리 (3개 팀 카드)
+    │       • 탭 2: 권역관리 (단가 테이블)
+    │       • 단가 추가 모달
+    │       • 일괄 업로드 모달
+    │
+    ├── 📁 utils/
+    │   ├── 📄 format.js            ← 포맷팅 함수 (10개)
+    │   │   • formatCurrency()
+    │   │   • formatDate()
+    │   │   • formatDateTime()
+    │   │   • formatTime()
+    │   │   • formatTimeAgo()
+    │   │   • parsePhoneNumber()
+    │   │   • validateEmail()
+    │   │   • validatePhoneNumber()
+    │   │   • calculatePercentageChange()
+    │   │   • getMonthYearString()
+    │   │
+    │   └── 📄 icons.js             ← SVG 아이콘 (18개)
+    │       • IconHome, IconDispatch, IconCrew, IconSettlement, IconRegion
+    │       • IconLogout, IconChevronDown/Up/Right
+    │       • IconPlus, IconEdit, IconDelete
+    │       • IconSearch, IconUpload, IconDownload
+    │       • IconClose, IconCheck
+    │       • IconWarning, IconError, IconSuccess
+    │
+    └── 📁 assets/
+        └── 📄 main.css             ← 글로벌 스타일
+            • CSS 변수 정의 (색상 토큰)
+            • Tailwind 임포트
+            • 기본 스타일
+
+
+기술 스택
+========
+
+프레임워크
+  • Vue 3 (Composition API, <script setup>)
+  • Vite 5 (빌드 도구)
+  • Pinia 2 (상태 관리)
+  • Vue Router 4 (라우팅)
+  • Axios (HTTP 클라이언트)
+  • Tailwind CSS 3 (스타일)
+
+설계 시스템
+  • 색상: 8가지 (primary + variants)
+  • 폰트: 시스템 폰트 스택
+  • 간격: 1rem 기반
+  • 아이콘: 커스텀 SVG (inline)
+
+API 통신
+  • 기본 URL: http://localhost:8000/api/v1
+  • 인증: JWT Bearer Token
+  • 에러 처리: 401 자동 로그아웃
+  • 엔드포인트: 31개 (준비됨)
+
+
+통계
+====
+
+파일 수
+  • 전체: 48개
+  • 컴포넌트: 18개
+  • 스토어: 7개
+  • API: 8개
+  • 유틸리티: 2개
+  • 문서: 5개
+
+라인 수
+  • Vue: ~2,500 라인
+  • JavaScript: ~1,200 라인
+  • CSS: ~300 라인
+  • 총합: ~4,000 라인
+
+번들 크기 (예상)
+  • Vue + Vite: ~150KB
+  • Pinia: ~15KB
+  • Router: ~20KB
+  • 기타: ~15KB
+  • 총합 (gzip): ~200KB
+
+
+기능
+====
+
+완성된 기능
+  ✅ 로그인 (이메일/비밀번호)
+  ✅ 대시보드 (KPI, 차트, 타임라인)
+  ✅ 배차 관리 (5단계 업로드)
+  ✅ 배송원 관리 (CRUD, 신규 감지)
+  ✅ 정산 (생성, 조회, 다운로드)
+  ✅ 권역 관리 (단가, 팀 설정)
+  ✅ 상태 관리 (7개 스토어)
+  ✅ API 레이어 (31개 엔드포인트)
+  ✅ 반응형 UI (1280px+)
+  ✅ Mock 데이터
+
+미래 확장
+  • 다크 모드
+  • 모바일 최적화
+  • 실시간 알림 (WebSocket)
+  • 차트/그래프
+  • 다국어 지원
+  • 테스트 (Unit, E2E)
+
+
+시작하기
+========
+
+1. 설치
+   npm install
+
+2. 개발
+   npm run dev
+   → http://localhost:5173
+
+3. 빌드
+   npm run build
+   → dist/
+
+4. 배포
+   dist/ 폴더를 웹 서버로 배포
+
+
+더 많은 정보
+===========
+
+→ README.md (프로젝트 개요)
+→ SETUP.md (상세 설정)
+→ QUICKSTART.md (빠른 시작)
+→ MANIFEST.md (파일 목록)
