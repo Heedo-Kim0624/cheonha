@@ -42,6 +42,13 @@ def split_region_codes(raw):
     return [p for p in parts if p and REGION_CODE_PATTERN.match(p)]
 
 
+def clean_crew_name(name):
+    """이름에서 선행 알파벳(ZD 등) 제거"""
+    if not name:
+        return name
+    return re.sub(r'^[A-Za-z]+', '', name.strip())
+
+
 def safe_int(val):
     if val is None:
         return 0
@@ -74,6 +81,33 @@ class DispatchUploadViewSet(viewsets.ModelViewSet):
         if hasattr(user, 'team') and user.team:
             q = q | Q(team=user.team)
         return DispatchUpload.objects.filter(q)
+
+    def destroy(self, request, *args, **kwargs):
+        """업로드 삭제 - 연관 정산 detail 삭제, 빈 settlement 정리"""
+        dispatch_upload = self.get_object()
+        with transaction.atomic():
+            # 이 upload의 settlement detail 삭제
+            SettlementDetail.objects.filter(dispatch_upload=dispatch_upload).delete()
+
+            # detail이 0개인 settlement 삭제, 나머지는 합계 재계산
+            from django.db.models import Sum
+            for s in Settlement.objects.all():
+                if s.details.count() == 0:
+                    s.delete()
+                else:
+                    agg = s.details.aggregate(r=Sum('receive_amount'), p=Sum('pay_amount'), o=Sum('overtime_cost'), pr=Sum('profit'))
+                    s.total_receive = agg['r'] or 0
+                    s.total_pay = agg['p'] or 0
+                    s.total_overtime = agg['o'] or 0
+                    s.total_profit = agg['pr'] or 0
+                    s.save()
+
+            # OvertimeSetting 삭제
+            OvertimeSetting.objects.filter(dispatch_upload=dispatch_upload).delete()
+            # 업로드 + 레코드 삭제
+            dispatch_upload.delete()
+
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -131,7 +165,7 @@ class DispatchUploadViewSet(viewsets.ModelViewSet):
 
                 delivery_type = str(row[0] or '').strip()
                 partner_name = str(row[1] or '').strip()
-                manager_name = str(row[2] or '').strip()
+                manager_name = clean_crew_name(str(row[2] or '').strip())
                 sub_region_raw = str(row[3] or '').strip()
                 detail_region = str(row[4] or '').strip() if len(row) > 4 else ''
                 households = safe_int(row[5]) if len(row) > 5 else 0
@@ -265,8 +299,9 @@ class DispatchUploadViewSet(viewsets.ModelViewSet):
                                    'receive_price': 0, 'pay_price': 0, 'default_overtime_cost': 0, 'has_price': False})
 
         crew_info = []
+        upload_team = dispatch_upload.team
         for mn in sorted(crew_set):
-            crews = CrewMember.objects.filter(code=mn)
+            crews = CrewMember.objects.filter(code=mn, team=upload_team) if upload_team else CrewMember.objects.filter(code=mn)
             if crews.exists():
                 c = crews.first()
                 crew_info.append({'code': mn, 'name': c.name, 'id': c.id, 'is_new': c.is_new,
@@ -283,6 +318,17 @@ class DispatchUploadViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['get'])
     def detected_info(self, request, pk=None):
         return Response(self._get_detected_info(self.get_object()))
+
+    @action(detail=False, methods=['get'])
+    def check_date(self, request):
+        """같은 날짜에 이미 업로드된 이력 조회"""
+        dispatch_date = request.query_params.get('date')
+        if not dispatch_date:
+            return Response([])
+        existing = DispatchUpload.objects.filter(
+            dispatch_date=dispatch_date, status='CONFIRMED'
+        ).values('id', 'original_filename', 'upload_date', 'total_rows')
+        return Response(list(existing))
 
     @action(detail=False, methods=['post'])
     def reset_data(self, request):
@@ -330,12 +376,15 @@ class DispatchUploadViewSet(viewsets.ModelViewSet):
                 if not code:
                     continue
                 try:
-                    crew = CrewMember.objects.get(code=code)
+                    crew = CrewMember.objects.get(code=code, team=dispatch_upload.team)
                     crew.name = ci.get('name', code)
                     crew.phone = ci.get('phone', '')
                     crew.vehicle_number = ci.get('vehicle_number', '')
+                    pay_price = ci.get('pay_price')
+                    if pay_price is not None:
+                        crew.pay_price = Decimal(str(pay_price))
                     crew.is_new = False
-                    crew.save(update_fields=['name', 'phone', 'vehicle_number', 'is_new'])
+                    crew.save(update_fields=['name', 'phone', 'vehicle_number', 'pay_price', 'is_new'])
                     crew_count += 1
                 except CrewMember.DoesNotExist:
                     continue
@@ -359,7 +408,7 @@ class DispatchUploadViewSet(viewsets.ModelViewSet):
                 dispatch_upload.records.filter(manager_name=name).update(is_overtime=is_ot)
                 count += 1
                 try:
-                    crew = CrewMember.objects.get(code=name)
+                    crew = CrewMember.objects.get(code=name, team=dispatch_upload.team)
                     if is_ot:
                         OvertimeSetting.objects.update_or_create(
                             dispatch_upload=dispatch_upload, crew_member=crew,
@@ -387,7 +436,6 @@ class DispatchUploadViewSet(viewsets.ModelViewSet):
 
         team = dispatch_upload.team
         receive_price = team.receive_price or Decimal('0')
-        pay_price = team.pay_price or Decimal('0')
 
         records = dispatch_upload.records.filter(is_valid=True)
         crew_records = defaultdict(list)
@@ -397,7 +445,7 @@ class DispatchUploadViewSet(viewsets.ModelViewSet):
             if not rec.manager_name:
                 continue
             try:
-                crew = CrewMember.objects.get(code=rec.manager_name)
+                crew = CrewMember.objects.get(code=rec.manager_name, team=team)
                 if crew.is_new:
                     if rec.manager_name not in skipped_crew:
                         skipped_crew.append(rec.manager_name)
@@ -412,8 +460,8 @@ class DispatchUploadViewSet(viewsets.ModelViewSet):
                 team=team, period_start=period_start, period_end=period_end,
                 defaults={'status': 'DRAFT', 'note': note}
             )
-            if not created:
-                settlement.details.all().delete()
+            # 같은 날짜 합산: 이번 upload의 기존 detail만 삭제 (다른 upload 것은 유지)
+            settlement.details.filter(dispatch_upload=dispatch_upload).delete()
 
             total_receive = Decimal('0')
             total_pay = Decimal('0')
@@ -422,7 +470,7 @@ class DispatchUploadViewSet(viewsets.ModelViewSet):
 
             for crew_code, recs in crew_records.items():
                 try:
-                    crew = CrewMember.objects.get(code=crew_code)
+                    crew = CrewMember.objects.get(code=crew_code, team=team)
                 except CrewMember.DoesNotExist:
                     continue
 
@@ -432,9 +480,12 @@ class DispatchUploadViewSet(viewsets.ModelViewSet):
                 ).first()
                 overtime_cost = Decimal(str(ot_setting.overtime_cost)) if ot_setting else Decimal('0')
 
+                # 기사별 지급단가
+                crew_pay_price = crew.pay_price or Decimal('0')
+
                 total_boxes = sum(r.boxes for r in recs)
                 r_amount = receive_price * Decimal(str(total_boxes))
-                p_amount = pay_price * Decimal(str(total_boxes))
+                p_amount = crew_pay_price * Decimal(str(total_boxes))
                 profit = r_amount - p_amount - overtime_cost
 
                 # 권역별로 분리해서 저장
@@ -452,7 +503,7 @@ class DispatchUploadViewSet(viewsets.ModelViewSet):
                 crew_regions = []
                 for rc, boxes in region_map.items():
                     ra = receive_price * Decimal(str(boxes))
-                    pa = pay_price * Decimal(str(boxes))
+                    pa = crew_pay_price * Decimal(str(boxes))
                     crew_regions.append({'region': rc, 'boxes': boxes,
                                          'receive_amount': int(ra), 'pay_amount': int(pa),
                                          'overtime_cost': 0, 'profit': int(ra - pa)})
@@ -463,10 +514,11 @@ class DispatchUploadViewSet(viewsets.ModelViewSet):
                     crew_regions[0]['profit'] = int(Decimal(str(crew_regions[0]['receive_amount'])) -
                                                      Decimal(str(crew_regions[0]['pay_amount'])) - overtime_cost)
 
-                # SettlementDetail 저장
+                # SettlementDetail 저장 (upload FK 포함)
                 for cr in crew_regions:
                     SettlementDetail.objects.create(
-                        settlement=settlement, crew_member=crew,
+                        settlement=settlement, dispatch_upload=dispatch_upload,
+                        crew_member=crew,
                         region=cr['region'], delivery_type='SAME_DAY',
                         boxes=cr['boxes'], receive_amount=cr['receive_amount'],
                         pay_amount=cr['pay_amount'], overtime_cost=cr['overtime_cost'],
@@ -484,10 +536,16 @@ class DispatchUploadViewSet(viewsets.ModelViewSet):
                     'total_overtime': int(overtime_cost), 'total_profit': int(profit),
                 })
 
-            settlement.total_receive = total_receive
-            settlement.total_pay = total_pay
-            settlement.total_overtime = total_overtime
-            settlement.total_profit = total_receive - total_pay - total_overtime
+            # 전체 detail에서 합계 재계산 (이전 upload + 이번 upload)
+            from django.db.models import Sum
+            agg = settlement.details.aggregate(
+                r=Sum('receive_amount'), p=Sum('pay_amount'),
+                o=Sum('overtime_cost'), pr=Sum('profit')
+            )
+            settlement.total_receive = agg['r'] or 0
+            settlement.total_pay = agg['p'] or 0
+            settlement.total_overtime = agg['o'] or 0
+            settlement.total_profit = agg['pr'] or 0
             settlement.status = 'CONFIRMED'
             settlement.save()
             dispatch_upload.status = 'CONFIRMED'

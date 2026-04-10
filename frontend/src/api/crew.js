@@ -13,7 +13,7 @@ export const createCrewMember = (data) => {
 }
 
 export const updateCrewMember = (id, data) => {
-  return client.put(`/crew/members/${id}`, data)
+  return client.patch(`/crew/members/${id}`, data)
 }
 
 export const deleteCrewMember = (id) => {

@@ -29,16 +29,11 @@
           </div>
         </div>
 
-        <div class="grid grid-cols-3 gap-5 mb-4">
+        <div class="grid grid-cols-2 gap-5 mb-4">
           <div>
             <label class="block text-gray-500 mb-2">수신단가 (박스당)</label>
             <input v-model.number="team._receive_price" type="number" placeholder="0"
               class="w-full px-4 py-3 border border-blue-200 rounded-lg text-right text-lg bg-blue-50 focus:border-blue-400 outline-none" />
-          </div>
-          <div>
-            <label class="block text-gray-500 mb-2">지급단가 (박스당)</label>
-            <input v-model.number="team._pay_price" type="number" placeholder="0"
-              class="w-full px-4 py-3 border border-orange-200 rounded-lg text-right text-lg bg-orange-50 focus:border-orange-400 outline-none" />
           </div>
           <div>
             <label class="block text-gray-500 mb-2">특근비용 (1인당)</label>
@@ -47,11 +42,9 @@
           </div>
         </div>
 
-        <div class="flex items-center justify-between">
-          <span class="font-bold text-lg"
-            :class="(team._receive_price || 0) - (team._pay_price || 0) >= 0 ? 'text-green-600' : 'text-red-600'">
-            마진: {{ formatCurrency((team._receive_price || 0) - (team._pay_price || 0)) }}원/박스
-          </span>
+        <div class="flex items-center justify-end gap-3">
+          <button @click="deleteTeam(team)"
+            class="px-6 py-3 bg-red-500 text-white rounded-lg font-medium hover:opacity-90">삭제</button>
           <button @click="saveTeam(team)"
             class="px-6 py-3 bg-primary text-white rounded-lg font-medium hover:opacity-90">저장</button>
         </div>
@@ -76,6 +69,40 @@
             </div>
           </div>
         </div>
+      </div>
+
+      <!-- 팀장 계정 관리 -->
+      <div class="bg-white rounded-xl p-6 border border-gray-200">
+        <h3 class="text-lg font-bold text-text mb-4">팀장 계정</h3>
+        <div v-if="teamLeaders.length === 0" class="text-center py-6 text-gray-400">등록된 팀장이 없습니다.</div>
+        <table v-else class="w-full">
+          <thead class="bg-gray-50 border-b border-gray-200">
+            <tr>
+              <th class="text-left px-4 py-3 font-semibold text-gray-600">아이디</th>
+              <th class="text-left px-4 py-3 font-semibold text-gray-600">이름</th>
+              <th class="text-left px-4 py-3 font-semibold text-gray-600">소속 팀</th>
+              <th class="text-left px-4 py-3 font-semibold text-gray-600">상태</th>
+              <th class="text-center px-4 py-3 font-semibold text-gray-600">관리</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="u in teamLeaders" :key="u.id" class="border-b border-gray-100 hover:bg-gray-50">
+              <td class="px-4 py-3 font-mono">{{ u.username }}</td>
+              <td class="px-4 py-3 font-bold text-text">{{ u.first_name || '-' }}</td>
+              <td class="px-4 py-3">{{ u.team_detail?.name || '미배정' }}</td>
+              <td class="px-4 py-3">
+                <span class="px-2 py-0.5 rounded-full font-medium"
+                  :class="u.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'">
+                  {{ u.is_active ? '활성' : '비활성' }}
+                </span>
+              </td>
+              <td class="px-4 py-3 text-center">
+                <button @click="deleteUser(u)"
+                  class="px-4 py-2 bg-red-500 text-white rounded-lg font-medium hover:opacity-90">삭제</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </div>
 
       <!-- 팀 생성 모달 -->
@@ -114,6 +141,7 @@ import client from '@/api/client'
 
 const teams = ref([])
 const pendingUsers = ref([])
+const teamLeaders = ref([])
 const showCreateModal = ref(false)
 const newTeam = reactive({ code: '', name: '' })
 
@@ -141,11 +169,18 @@ const saveTeam = async (team) => {
   try {
     await client.patch(`/accounts/teams/${team.id}`, {
       receive_price: team._receive_price || 0,
-      pay_price: team._pay_price || 0,
       default_overtime_cost: team._overtime_cost || 0,
     })
     alert(`${team.name} 저장 완료`)
   } catch (e) { alert('저장 실패') }
+}
+
+const deleteTeam = async (team) => {
+  if (!confirm(`${team.name}을(를) 삭제하시겠습니까? 관련 데이터도 함께 삭제됩니다.`)) return
+  try {
+    await client.delete(`/accounts/teams/${team.id}`)
+    loadTeams()
+  } catch (e) { alert('삭제 실패') }
 }
 
 const createTeam = async () => {
@@ -177,5 +212,22 @@ const rejectUser = async (id) => {
   } catch (e) { alert('거부 실패') }
 }
 
-onMounted(() => { loadTeams(); loadPendingUsers() })
+const loadTeamLeaders = async () => {
+  try {
+    const resp = await client.get('/accounts/users')
+    const all = resp.data.results || resp.data || []
+    teamLeaders.value = all.filter(u => u.role === 'TEAM_LEADER' && u.is_active)
+  } catch (e) { teamLeaders.value = [] }
+}
+
+const deleteUser = async (u) => {
+  if (!confirm(`${u.first_name || u.username} 계정을 삭제하시겠습니까?`)) return
+  try {
+    await client.delete(`/accounts/users/${u.id}`)
+    loadTeamLeaders()
+    loadPendingUsers()
+  } catch (e) { alert('삭제 실패') }
+}
+
+onMounted(() => { loadTeams(); loadPendingUsers(); loadTeamLeaders() })
 </script>

@@ -91,6 +91,13 @@ class SettlementDetail(AuditMixin):
         related_name='details',
         verbose_name='정산'
     )
+    dispatch_upload = models.ForeignKey(
+        'dispatch.DispatchUpload',
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='settlement_details',
+        verbose_name='배차 업로드'
+    )
     crew_member = models.ForeignKey(
         CrewMember,
         on_delete=models.SET_NULL,

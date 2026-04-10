@@ -253,6 +253,22 @@ class SettlementViewSet(viewsets.ModelViewSet):
         serializer = SettlementSerializer(settlement)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
+    @action(detail=True, methods=['post'])
+    def recalc(self, request, pk=None):
+        """정산 합계 재계산"""
+        settlement = self.get_object()
+        details = settlement.details.all()
+        total_receive = details.aggregate(Sum('receive_amount'))['receive_amount__sum'] or 0
+        total_pay = details.aggregate(Sum('pay_amount'))['pay_amount__sum'] or 0
+        total_overtime = details.aggregate(Sum('overtime_cost'))['overtime_cost__sum'] or 0
+        settlement.total_receive = total_receive
+        settlement.total_pay = total_pay
+        settlement.total_overtime = total_overtime
+        settlement.total_profit = total_receive - total_pay - total_overtime
+        settlement.save()
+        serializer = SettlementSerializer(settlement)
+        return Response(serializer.data)
+
     @action(detail=True, methods=['get'])
     def export(self, request, pk=None):
         """정산서 내보내기 (CSV)"""
@@ -314,9 +330,16 @@ class SettlementDetailViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         settlement_id = self.request.query_params.get('settlement_id')
+        user = self.request.user
+
+        # PATCH/DELETE 등 개별 접근 시 전체에서 찾기
+        if self.action in ['update', 'partial_update', 'destroy', 'retrieve']:
+            if user.is_admin() or user.is_staff:
+                return SettlementDetail.objects.all()
+            return SettlementDetail.objects.filter(settlement__team=user.team)
+
         if settlement_id:
             settlement = get_object_or_404(Settlement, id=settlement_id)
-            user = self.request.user
             if not user.is_admin() and settlement.team != user.team:
                 return SettlementDetail.objects.none()
             return settlement.details.all()

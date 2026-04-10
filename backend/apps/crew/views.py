@@ -69,6 +69,53 @@ class CrewMemberViewSet(BaseViewSet):
         return Response(result)
 
     @action(detail=True, methods=['post'])
+    def recalc_settlements(self, request, pk=None):
+        """지급단가 변경 후 기존 정산 재계산"""
+        crew_member = self.get_object()
+        new_pay_price = crew_member.pay_price or 0
+        team = crew_member.team
+
+        # 팀의 수신단가
+        from apps.accounts.models import Team
+        receive_price = team.receive_price if team else 0
+
+        from decimal import Decimal
+        from django.db.models import Sum
+
+        details = SettlementDetail.objects.filter(crew_member=crew_member)
+        updated = 0
+        settlement_ids = set()
+
+        for d in details:
+            new_pay = Decimal(str(new_pay_price)) * Decimal(str(d.boxes))
+            new_receive = Decimal(str(receive_price)) * Decimal(str(d.boxes))
+            d.pay_amount = new_pay
+            d.receive_amount = new_receive
+            d.profit = new_receive - new_pay - d.overtime_cost
+            d.save(update_fields=['pay_amount', 'receive_amount', 'profit'])
+            settlement_ids.add(d.settlement_id)
+            updated += 1
+
+        # 관련 settlement 합계 재계산
+        from apps.settlement.models import Settlement
+        for sid in settlement_ids:
+            try:
+                s = Settlement.objects.get(id=sid)
+                agg = s.details.aggregate(
+                    r=Sum('receive_amount'), p=Sum('pay_amount'),
+                    o=Sum('overtime_cost'), pr=Sum('profit')
+                )
+                s.total_receive = agg['r'] or 0
+                s.total_pay = agg['p'] or 0
+                s.total_overtime = agg['o'] or 0
+                s.total_profit = agg['pr'] or 0
+                s.save()
+            except Settlement.DoesNotExist:
+                pass
+
+        return Response({'detail': f'{updated}건 정산 재계산 완료'})
+
+    @action(detail=True, methods=['post'])
     def mark_registered(self, request, pk=None):
         """신규 배송원을 등록으로 변경"""
         crew_member = self.get_object()

@@ -10,12 +10,12 @@ class CrewMemberSerializer(serializers.ModelSerializer):
     class Meta:
         model = CrewMember
         fields = [
-            'id', 'code', 'name', 'phone', 'vehicle_number',
+            'id', 'code', 'name', 'phone', 'vehicle_number', 'pay_price',
             'team', 'team_name', 'team_code', 'partner', 'partner_name',
             'region', 'is_active', 'is_new', 'note',
             'created_at', 'updated_at'
         ]
-        read_only_fields = ['created_at', 'updated_at']
+        read_only_fields = ['code', 'team', 'created_at', 'updated_at']
 
 
 class OvertimeSettingSerializer(serializers.ModelSerializer):

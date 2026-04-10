@@ -7,6 +7,7 @@ const routes = [
   { path: '/dispatch', name: 'Dispatch', component: () => import('@/views/DispatchView.vue'), meta: { requiresAuth: true } },
   { path: '/crew', name: 'Crew', component: () => import('@/views/CrewView.vue'), meta: { requiresAuth: true } },
   { path: '/settlement', name: 'Settlement', component: () => import('@/views/SettlementView.vue'), meta: { requiresAuth: true, adminOnly: true } },
+  { path: '/operations', name: 'Operations', component: () => import('@/views/OperationsView.vue'), meta: { requiresAuth: true } },
   { path: '/region', name: 'Region', component: () => import('@/views/RegionView.vue'), meta: { requiresAuth: true, adminOnly: true } },
   { path: '/:pathMatch(.*)*', redirect: '/' }
 ]

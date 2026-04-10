@@ -95,30 +95,29 @@ const greeting = computed(() => {
 
 const kpiCards = computed(() => {
   const d = kpiRaw.value
-  const overtime = Number(d.total_revenue || 0) - Number(d.total_paid || 0) - Number(d.total_profit || 0)
   return [
     { label: '수신합계', value: Number(d.total_revenue || 0), bgClass: 'bg-gray-800 border-gray-800', labelClass: 'text-gray-400', valueClass: 'text-white' },
     { label: '지급합계', value: Number(d.total_paid || 0), bgClass: 'bg-blue-50 border-blue-200', labelClass: 'text-blue-600', valueClass: 'text-blue-800' },
-    { label: '특근비용', value: overtime, bgClass: 'bg-orange-50 border-orange-200', labelClass: 'text-orange-600', valueClass: 'text-orange-800' },
+    { label: '조정비용', value: Number(d.total_overtime || 0), bgClass: 'bg-orange-50 border-orange-200', labelClass: 'text-orange-600', valueClass: 'text-orange-800' },
     { label: '수익', value: Number(d.total_profit || 0), bgClass: 'bg-green-50 border-green-200', labelClass: 'text-green-600', valueClass: 'text-green-800' },
   ]
 })
 
 const fetchData = async () => {
   try {
-    const params = selectedTeam.value ? { team: selectedTeam.value } : {}
-    const [kpiResp, settResp] = await Promise.allSettled([
-      fetchKpi(),
-      fetchSettlements(params)
-    ])
-    if (kpiResp.status === 'fulfilled') kpiRaw.value = kpiResp.value.data
-    if (settResp.status === 'fulfilled') {
-      let all = settResp.value.data.results || settResp.value.data || []
-      if (selectedTeam.value) {
-        all = all.filter(s => s.team_name === selectedTeam.value + '조')
-      }
-      recentSettlements.value = all.slice(0, 5)
+    const resp = await fetchSettlements()
+    let all = resp.data.results || resp.data || []
+    if (selectedTeam.value) {
+      all = all.filter(s => s.team_name === selectedTeam.value + '조')
     }
+    recentSettlements.value = all.slice(0, 5)
+
+    // KPI를 필터된 정산에서 직접 계산
+    const totalReceive = all.reduce((s, d) => s + Number(d.total_receive || 0), 0)
+    const totalPay = all.reduce((s, d) => s + Number(d.total_pay || 0), 0)
+    const totalOvertime = all.reduce((s, d) => s + Number(d.total_overtime || 0), 0)
+    const totalProfit = all.reduce((s, d) => s + Number(d.total_profit || 0), 0)
+    kpiRaw.value = { total_revenue: totalReceive, total_paid: totalPay, total_overtime: totalOvertime, total_profit: totalProfit }
   } catch (e) {}
 }
 

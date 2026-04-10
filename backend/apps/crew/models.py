@@ -6,9 +6,9 @@ from apps.common.models import AuditMixin
 
 class CrewMember(AuditMixin):
     """배송원 관리"""
-    code = models.CharField('배송원코드', max_length=50, unique=True)
+    code = models.CharField('배송원코드', max_length=50)
     name = models.CharField('배송원명', max_length=100)
-    phone = models.CharField('전화번호', max_length=20)
+    phone = models.CharField('전화번호', max_length=20, blank=True)
     vehicle_number = models.CharField('차량번호', max_length=20, blank=True)
     team = models.ForeignKey(
         Team,
@@ -23,6 +23,11 @@ class CrewMember(AuditMixin):
         blank=True,
         related_name='crew_members',
         verbose_name='파트너사'
+    )
+    pay_price = models.DecimalField(
+        '지급단가(박스당)',
+        max_digits=12, decimal_places=0, default=0,
+        help_text='원 단위 - 이 배송원에게 지급하는 박스당 단가'
     )
     region = models.CharField('권역', max_length=50, blank=True)
     is_active = models.BooleanField('활성화', default=True)

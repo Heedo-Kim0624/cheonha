@@ -51,17 +51,23 @@
         <div v-if="uploadHistory.length > 0" class="mt-8">
           <h4 class="font-bold text-text mb-3">최근 업로드</h4>
           <div class="space-y-2">
-            <div v-for="upload in uploadHistory.slice(0, 5)" :key="upload.id"
+            <div v-for="upload in uploadHistory.slice(0, 10)" :key="upload.id"
               class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
               <div>
                 <span class="font-medium text-text">{{ upload.original_filename || '배차파일' }}</span>
                 <span v-if="upload.dispatch_date" class="text-blue-600 ml-3">{{ upload.dispatch_date }}</span>
                 <span class="text-gray-400 ml-3">{{ upload.total_rows }}행</span>
               </div>
-              <span class="px-2 py-0.5 rounded-full text-xs font-medium"
-                :class="upload.status === 'CONFIRMED' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'">
-                {{ upload.status === 'CONFIRMED' ? '정산완료' : '대기중' }}
-              </span>
+              <div class="flex items-center gap-2">
+                <span class="px-2 py-0.5 rounded-full text-xs font-medium"
+                  :class="upload.status === 'CONFIRMED' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'">
+                  {{ upload.status === 'CONFIRMED' ? '정산완료' : '대기중' }}
+                </span>
+                <button @click="deleteUpload(upload)"
+                  class="px-3 py-1 bg-red-500 text-white rounded-lg text-xs font-medium hover:opacity-90">
+                  삭제
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -115,27 +121,17 @@
               <span class="text-lg font-bold text-text">{{ team.name }}</span>
               <span v-if="team.has_price" class="px-2 py-0.5 bg-green-100 text-green-700 rounded text-xs">설정됨</span>
             </div>
-            <div class="grid grid-cols-3 gap-4">
+            <div class="grid grid-cols-2 gap-4">
               <div>
                 <label class="block text-sm text-gray-500 mb-1">수신단가 (박스당)</label>
                 <input v-model.number="team._receive_price" type="number" placeholder="0"
                   class="w-full px-4 py-3 border border-blue-200 rounded-lg text-right text-lg bg-blue-50 focus:border-blue-400 outline-none" />
               </div>
               <div>
-                <label class="block text-sm text-gray-500 mb-1">지급단가 (박스당)</label>
-                <input v-model.number="team._pay_price" type="number" placeholder="0"
-                  class="w-full px-4 py-3 border border-orange-200 rounded-lg text-right text-lg bg-orange-50 focus:border-orange-400 outline-none" />
-              </div>
-              <div>
                 <label class="block text-sm text-gray-500 mb-1">특근비용 (1인당)</label>
                 <input v-model.number="team._overtime_cost" type="number" placeholder="0"
                   class="w-full px-4 py-3 border border-amber-200 rounded-lg text-right text-lg bg-amber-50 focus:border-amber-400 outline-none" />
               </div>
-            </div>
-            <div class="mt-3 text-right">
-              <span class="font-bold" :class="(team._receive_price || 0) - (team._pay_price || 0) >= 0 ? 'text-green-600' : 'text-red-600'">
-                마진: {{ formatCurrency((team._receive_price || 0) - (team._pay_price || 0)) }}원/박스
-              </span>
             </div>
           </div>
         </div>
@@ -151,12 +147,18 @@
             <thead class="bg-gray-50 border-b border-gray-200">
               <tr>
                 <th class="text-left px-4 py-3 font-semibold text-gray-600">이름</th>
+                <th class="text-right px-4 py-3 font-semibold text-orange-600">지급단가 (박스당)</th>
                 <th class="text-center px-4 py-3 font-semibold text-gray-600">용차 여부</th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="crew in newCrewList" :key="crew.code" class="border-b border-gray-100">
                 <td class="px-4 py-3 font-bold text-text">{{ crew.code }}</td>
+                <td class="px-4 py-3 text-right">
+                  <input v-if="!crew._isYongcha" v-model.number="crew._pay_price" type="number" placeholder="0" min="0"
+                    class="w-32 px-3 py-2 border border-orange-300 rounded-lg text-right bg-orange-50 focus:border-orange-400 outline-none" />
+                  <span v-else class="text-gray-300">-</span>
+                </td>
                 <td class="px-4 py-3 text-center">
                   <label class="inline-flex items-center gap-2 cursor-pointer">
                     <input type="checkbox" v-model="crew._isYongcha" class="w-5 h-5 rounded" />
@@ -354,6 +356,26 @@ const handleFileSelect = (e) => { const f = e.target.files; if (f.length) proces
 
 const processFile = async (file) => {
   if (!file.name.match(/\.xlsx?$/i)) { uploadError.value = '.xlsx 파일만 업로드 가능합니다.'; return }
+
+  // 파일명에서 날짜 추출해서 같은 날짜 이력 확인
+  const dateMatch = file.name.match(/(\d{4})-(\d{2})-(\d{2})/)
+  if (dateMatch) {
+    const fileDate = `${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}`
+    try {
+      const checkResp = await client.get('/dispatch/uploads/check_date/', { params: { date: fileDate } })
+      const existing = checkResp.data || []
+      if (existing.length > 0) {
+        const times = existing.map(e => {
+          const d = new Date(e.upload_date)
+          return `${d.getHours()}시 ${d.getMinutes()}분 ${d.getSeconds()}초`
+        }).join(', ')
+        if (!confirm(`${fileDate}에 배차표를 올린 이력이 있습니다.\n(${times})\n\n추가로 올리시겠습니까? 정산이 합산됩니다.`)) {
+          return
+        }
+      }
+    } catch (e) { /* 체크 실패시 그냥 진행 */ }
+  }
+
   isUploading.value = true
   uploadError.value = ''
 
@@ -374,7 +396,7 @@ const processFile = async (file) => {
 
     newCrewList.value = (data.detected_info.crew_members || [])
       .filter(c => c.is_new)
-      .map(c => ({ ...c, _isYongcha: false }))
+      .map(c => ({ ...c, _isYongcha: false, _pay_price: 0 }))
 
     // create 응답에 records 포함, 없으면 별도 조회
     if (data.records && data.records.length > 0) {
@@ -430,9 +452,10 @@ const handleNextStep = async () => {
       const teams = teamPricingList.value.map(t => ({
         id: t.id, receive_price: t._receive_price || 0, pay_price: t._pay_price || 0, default_overtime_cost: t._overtime_cost || 0
       }))
-      // 용차가 아닌 신규 배송원만 등록 (전화번호/차량번호는 배송원관리에서 추후 입력)
+      // 용차가 아닌 신규 배송원만 등록 + 지급단가
       const crew = newCrewList.value.filter(c => !c._isYongcha).map(c => ({
-        code: c.code, name: c.name || c.code, phone: '', vehicle_number: ''
+        code: c.code, name: c.name || c.code, phone: '', vehicle_number: '',
+        pay_price: c._pay_price || 0
       }))
 
       await client.post(`/dispatch/uploads/${uploadId.value}/configure/`, { teams, crew })
@@ -474,6 +497,17 @@ const resetUpload = () => {
   teamPricingList.value = []; crewOvertimeList.value = []
   settlementResult.value = null; uploadError.value = ''; processError.value = ''
   expandedCrewCode.value = null; loadHistory()
+}
+
+const deleteUpload = async (upload) => {
+  const name = upload.original_filename || '배차파일'
+  if (!confirm(`"${name}" 업로드를 삭제하시겠습니까?\n연관된 정산 데이터도 함께 삭제됩니다.`)) return
+  try {
+    await client.delete(`/dispatch/uploads/${upload.id}`)
+    loadHistory()
+  } catch (e) {
+    alert(e.response?.data?.detail || '삭제 실패')
+  }
 }
 
 const loadHistory = async () => {
