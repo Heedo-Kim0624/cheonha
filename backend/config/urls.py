@@ -23,6 +23,9 @@ urlpatterns = [
     path('api/v1/crew/', include('apps.crew.urls')),
     path('api/v1/partner/', include('apps.partner.urls')),
     path('api/v1/dashboard/', include('apps.dashboard.urls')),
+
+    # Mobile API (기사용 모바일 앱)
+    path('api/v1/mobile/', include('apps.mobile.urls')),
 ]
 
 if settings.DEBUG:

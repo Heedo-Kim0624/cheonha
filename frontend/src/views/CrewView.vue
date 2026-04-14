@@ -3,12 +3,8 @@
     <div class="space-y-6">
       <div class="flex items-center justify-between">
         <h2 class="text-xl font-bold text-text">배송원 관리</h2>
-        <select v-if="authStore.isAdmin" v-model="selectedTeam"
-          class="px-4 py-3 border border-gray-300 rounded-lg focus:border-primary outline-none bg-white min-w-[140px]">
-          <option value="">전체</option>
-          <option v-for="t in teamList" :key="t.id" :value="t.code">{{ t.name }}</option>
-        </select>
       </div>
+      <TeamFilter v-if="authStore.isAdmin" v-model="selectedTeamName" />
 
       <div>
         <input v-model="searchQuery" type="text" placeholder="이름, 코드, 전화번호 검색..."
@@ -114,13 +110,13 @@ import { ref, computed, reactive, onMounted, watch } from 'vue'
 import { useCrewStore } from '@/stores/crew'
 import { useAuthStore } from '@/stores/auth'
 import AppLayout from '@/components/common/AppLayout.vue'
+import TeamFilter from '@/components/common/TeamFilter.vue'
 import client from '@/api/client'
 
 const authStore = useAuthStore()
 const crewStore = useCrewStore()
 const searchQuery = ref('')
-const selectedTeam = ref('')
-const teamList = ref([])
+const selectedTeamName = ref('')
 const showEditModal = ref(false)
 const editingId = ref(null)
 const crewForm = reactive({ name: '', phone: '', vehicle_number: '', pay_price: 0 })
@@ -130,7 +126,7 @@ const pageSize = 20
 
 const filteredCrew = computed(() => {
   let list = crewStore.crewMembers.filter(m => !m.is_new)
-  if (selectedTeam.value) list = list.filter(m => m.team_code === selectedTeam.value)
+  if (selectedTeamName.value) list = list.filter(m => m.team_name === selectedTeamName.value)
   if (searchQuery.value) {
     const q = searchQuery.value.toLowerCase()
     list = list.filter(m => (m.name && m.name.toLowerCase().includes(q)) || (m.code && m.code.toLowerCase().includes(q)) || (m.phone && m.phone.includes(q)))
@@ -139,7 +135,7 @@ const filteredCrew = computed(() => {
 })
 
 // 검색/필터 변경 시 1페이지로
-watch([searchQuery, selectedTeam], () => { currentPage.value = 1 })
+watch([searchQuery, selectedTeamName], () => { currentPage.value = 1 })
 
 const totalPages = computed(() => Math.ceil(filteredCrew.value.length / pageSize) || 1)
 const paginatedCrew = computed(() => {
@@ -152,10 +148,6 @@ const visiblePages = computed(() => {
   for (let i = start; i <= Math.min(totalPages.value, start + 4); i++) pages.push(i)
   return pages
 })
-
-const loadTeams = async () => {
-  try { const r = await client.get('/accounts/teams'); teamList.value = r.data.results || r.data || [] } catch (e) {}
-}
 
 const editCrew = (m) => {
   editingId.value = m.id
@@ -193,5 +185,5 @@ const deleteCrew = async (m) => {
   try { await crewStore.removeCrew(m.id) } catch (err) { alert('삭제 실패') }
 }
 
-onMounted(() => { crewStore.fetchCrew(); loadTeams() })
+onMounted(() => { crewStore.fetchCrew() })
 </script>

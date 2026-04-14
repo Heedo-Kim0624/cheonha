@@ -63,6 +63,10 @@
                   :class="upload.status === 'CONFIRMED' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'">
                   {{ upload.status === 'CONFIRMED' ? '정산완료' : '대기중' }}
                 </span>
+                <button v-if="upload.status !== 'CONFIRMED'" @click="resumeUpload(upload)"
+                  class="px-3 py-1 bg-primary text-white rounded-lg text-xs font-medium hover:opacity-90">
+                  정산생성
+                </button>
                 <button @click="deleteUpload(upload)"
                   class="px-3 py-1 bg-red-500 text-white rounded-lg text-xs font-medium hover:opacity-90">
                   삭제
@@ -497,6 +501,40 @@ const resetUpload = () => {
   teamPricingList.value = []; crewOvertimeList.value = []
   settlementResult.value = null; uploadError.value = ''; processError.value = ''
   expandedCrewCode.value = null; loadHistory()
+}
+
+const resumeUpload = async (upload) => {
+  isUploading.value = true
+  uploadError.value = ''
+  try {
+    uploadId.value = upload.id
+    dispatchDate.value = upload.dispatch_date || null
+
+    // detected_info 로드
+    const infoResp = await getDetectedInfo(upload.id)
+    detectedInfo.value = infoResp.data
+
+    teamPricingList.value = (infoResp.data.teams || []).map(t => ({
+      ...t,
+      _receive_price: t.receive_price || 0,
+      _pay_price: t.pay_price || 0,
+      _overtime_cost: t.default_overtime_cost || 0,
+    }))
+
+    newCrewList.value = (infoResp.data.crew_members || [])
+      .filter(c => c.is_new)
+      .map(c => ({ ...c, _isYongcha: false, _pay_price: 0 }))
+
+    // records 로드
+    const recResp = await getRecords(upload.id)
+    uploadRecords.value = recResp.data.results || recResp.data || []
+
+    currentStep.value = 1
+  } catch (e) {
+    uploadError.value = e.response?.data?.detail || '데이터 로드 실패'
+  } finally {
+    isUploading.value = false
+  }
 }
 
 const deleteUpload = async (upload) => {

@@ -38,6 +38,7 @@ INSTALLED_APPS = [
     'apps.partner.apps.PartnerConfig',
     'apps.dashboard.apps.DashboardConfig',
     'apps.common.apps.CommonConfig',
+    'apps.mobile.apps.MobileConfig',
 ]
 
 MIDDLEWARE = [

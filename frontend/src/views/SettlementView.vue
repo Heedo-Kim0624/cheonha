@@ -4,17 +4,13 @@
       <div class="bg-white rounded-xl p-6 border border-gray-200">
         <div class="flex items-center justify-between mb-5">
           <h3 class="text-lg font-bold text-text">정산 내역</h3>
-          <div class="flex items-center gap-3">
-            <select v-model="selectedTeam"
-              class="px-4 py-3 border border-gray-300 rounded-lg focus:border-primary outline-none bg-white min-w-[140px]">
-              <option value="">전체</option>
-              <option v-for="t in teamList" :key="t.id" :value="t.name">{{ t.name }}</option>
-            </select>
-            <RouterLink to="/dispatch"
-              class="px-4 py-2 bg-primary text-white rounded-lg font-medium hover:opacity-90">
-              배차 업로드로 정산 생성
-            </RouterLink>
-          </div>
+          <RouterLink to="/dispatch"
+            class="px-4 py-2 bg-primary text-white rounded-lg font-medium hover:opacity-90">
+            배차 업로드로 정산 생성
+          </RouterLink>
+        </div>
+        <div class="mb-5">
+          <TeamFilter v-model="selectedTeam" />
         </div>
 
         <div v-if="loading" class="text-center py-12 text-gray-400">
@@ -188,6 +184,7 @@ import { formatCurrency } from '@/utils/format'
 import AppLayout from '@/components/common/AppLayout.vue'
 import { fetchSettlements, getSettlementDetails } from '@/api/settlement'
 import client from '@/api/client'
+import TeamFilter from '@/components/common/TeamFilter.vue'
 
 const settlements = ref([])
 const loading = ref(true)
@@ -195,7 +192,6 @@ const expandedId = ref(null)
 const rawDetails = ref([])
 const loadingDetails = ref(false)
 const selectedTeam = ref('')
-const teamList = ref([])
 const crewPopup = ref(null)
 const popupMonth = ref(new Date().toISOString().substring(0, 7))
 
@@ -327,11 +323,6 @@ const toggleDetail = async (id) => {
   finally { loadingDetails.value = false }
 }
 
-const loadTeams = async () => {
-  try { const r = await client.get('/accounts/teams'); teamList.value = r.data.results || r.data || [] }
-  catch (e) {}
-}
-
 const loadSettlements = async () => {
   loading.value = true
   try { const r = await fetchSettlements(); settlements.value = r.data.results || r.data || [] }
@@ -339,5 +330,5 @@ const loadSettlements = async () => {
   finally { loading.value = false }
 }
 
-onMounted(() => { loadSettlements(); loadTeams() })
+onMounted(() => { loadSettlements() })
 </script>

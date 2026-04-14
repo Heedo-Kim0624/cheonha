@@ -2,17 +2,11 @@
   <AppLayout>
     <div class="space-y-6">
       <!-- Header + Filter -->
-      <div class="flex items-center justify-between">
-        <div class="bg-gradient-to-r from-gray-800 to-gray-700 p-6 rounded-xl text-white flex-1 mr-4">
-          <h2 class="text-2xl font-bold mb-1">{{ greeting }}, {{ userName }}님!</h2>
-          <p class="text-gray-300">천하운수 정산관리 시스템</p>
-        </div>
-        <select v-model="selectedTeam" @change="fetchData"
-          class="px-4 py-3 border border-gray-300 rounded-lg focus:border-primary outline-none bg-white min-w-[140px]">
-          <option value="">전체</option>
-          <option v-for="t in teamList" :key="t.id" :value="t.code">{{ t.name }}</option>
-        </select>
+      <div class="bg-gradient-to-r from-gray-800 to-gray-700 p-6 rounded-xl text-white">
+        <h2 class="text-2xl font-bold mb-1">{{ greeting }}, {{ userName }}님!</h2>
+        <p class="text-gray-300">천하운수 정산관리 시스템</p>
       </div>
+      <TeamFilter v-model="selectedTeam" @update:modelValue="fetchData" />
 
       <!-- Workflow -->
       <div class="bg-white rounded-xl p-6 border border-gray-200">
@@ -74,9 +68,9 @@ import AppLayout from '@/components/common/AppLayout.vue'
 import client from '@/api/client'
 import { fetchKpi } from '@/api/dashboard'
 import { fetchSettlements } from '@/api/settlement'
+import TeamFilter from '@/components/common/TeamFilter.vue'
 
 const selectedTeam = ref('')
-const teamList = ref([])
 const kpiRaw = ref({ total_revenue: 0, total_paid: 0, total_profit: 0 })
 const recentSettlements = ref([])
 
@@ -108,7 +102,7 @@ const fetchData = async () => {
     const resp = await fetchSettlements()
     let all = resp.data.results || resp.data || []
     if (selectedTeam.value) {
-      all = all.filter(s => s.team_name === selectedTeam.value + '조')
+      all = all.filter(s => s.team_name === selectedTeam.value)
     }
     recentSettlements.value = all.slice(0, 5)
 
@@ -121,10 +115,5 @@ const fetchData = async () => {
   } catch (e) {}
 }
 
-const loadTeams = async () => {
-  try { const r = await client.get('/accounts/teams'); teamList.value = r.data.results || r.data || [] }
-  catch (e) {}
-}
-
-onMounted(() => { loadTeams(); fetchData() })
+onMounted(() => { fetchData() })
 </script>

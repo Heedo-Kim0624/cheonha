@@ -62,3 +62,9 @@ frontend/package-lock.json
 frontend/vite.config.js.timestamp-*
 package.json
 playwright.config.js
+cheonha-settlement-app/node_modules/
+cheonha-settlement-app/.expo/
+cheonha-settlement-app/apk-output/
+cheonha-settlement-app/android/
+cheonha-settlement-app/ios/
+cheonha-settlement-app/credentials.json

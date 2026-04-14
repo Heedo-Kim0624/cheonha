@@ -151,8 +151,9 @@ const loadTeams = async () => {
     teams.value = (resp.data.results || resp.data || []).map(t => ({
       ...t,
       _receive_price: Number(t.receive_price || 0),
-      _pay_price: Number(t.pay_price || 0),
       _overtime_cost: Number(t.default_overtime_cost || 0),
+      _orig_receive_price: Number(t.receive_price || 0),
+      _orig_overtime_cost: Number(t.default_overtime_cost || 0),
     }))
   } catch (e) { teams.value = [] }
 }
@@ -171,6 +172,18 @@ const saveTeam = async (team) => {
       receive_price: team._receive_price || 0,
       default_overtime_cost: team._overtime_cost || 0,
     })
+
+    const priceChanged = Number(team._receive_price) !== Number(team._orig_receive_price)
+    if (priceChanged) {
+      if (confirm('단가가 변경되었습니다.\n기존 정산에도 적용하시겠습니까?')) {
+        try {
+          await client.post(`/accounts/teams/${team.id}/recalc_settlements/`)
+        } catch (e) { /* 정산 없으면 무시 */ }
+      }
+      team._orig_receive_price = team._receive_price
+    }
+    team._orig_overtime_cost = team._overtime_cost
+
     alert(`${team.name} 저장 완료`)
   } catch (e) { alert('저장 실패') }
 }

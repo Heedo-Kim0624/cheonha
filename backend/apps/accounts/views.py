@@ -163,6 +163,48 @@ class TeamViewSet(viewsets.ModelViewSet):
         serializer.save()
         logger.info(f'팀 수정: {serializer.instance.name} (수정자: {self.request.user.username})')
 
+    @action(detail=True, methods=['post'])
+    def recalc_settlements(self, request, pk=None):
+        """팀 수신단가 변경 후 기존 정산 재계산"""
+        team = self.get_object()
+        from decimal import Decimal
+        from django.db.models import Sum
+        from apps.settlement.models import Settlement, SettlementDetail
+        from apps.crew.models import CrewMember
+
+        receive_price = team.receive_price or Decimal('0')
+        details = SettlementDetail.objects.filter(settlement__team=team)
+        updated = 0
+        settlement_ids = set()
+
+        for d in details:
+            # 배송원 지급단가
+            crew_pay = Decimal('0')
+            if d.crew_member:
+                crew_pay = d.crew_member.pay_price or Decimal('0')
+            new_receive = receive_price * Decimal(str(d.boxes))
+            new_pay = crew_pay * Decimal(str(d.boxes))
+            d.receive_amount = new_receive
+            d.pay_amount = new_pay
+            d.profit = new_receive - new_pay - d.overtime_cost
+            d.save(update_fields=['receive_amount', 'pay_amount', 'profit'])
+            settlement_ids.add(d.settlement_id)
+            updated += 1
+
+        for sid in settlement_ids:
+            try:
+                s = Settlement.objects.get(id=sid)
+                agg = s.details.aggregate(r=Sum('receive_amount'), p=Sum('pay_amount'), o=Sum('overtime_cost'), pr=Sum('profit'))
+                s.total_receive = agg['r'] or 0
+                s.total_pay = agg['p'] or 0
+                s.total_overtime = agg['o'] or 0
+                s.total_profit = agg['pr'] or 0
+                s.save()
+            except Settlement.DoesNotExist:
+                pass
+
+        return Response({'detail': f'{updated}건 정산 재계산 완료'})
+
     @action(detail=False, methods=['get'], permission_classes=[permissions.AllowAny])
     def teams_list(self, request):
         """팀 목록 조회 (권한 없이 조회 가능)"""
