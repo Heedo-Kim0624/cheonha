@@ -3,6 +3,7 @@ import { useAuthStore } from '@/stores/auth'
 
 const routes = [
   { path: '/login', name: 'Login', component: () => import('@/views/LoginView.vue'), meta: { requiresAuth: false } },
+  { path: '/privacy', name: 'Privacy', component: () => import('@/views/PrivacyView.vue'), meta: { requiresAuth: false } },
   { path: '/', name: 'Home', component: () => import('@/views/HomeView.vue'), meta: { requiresAuth: true, adminOnly: true } },
   { path: '/dispatch', name: 'Dispatch', component: () => import('@/views/DispatchView.vue'), meta: { requiresAuth: true } },
   { path: '/crew', name: 'Crew', component: () => import('@/views/CrewView.vue'), meta: { requiresAuth: true } },

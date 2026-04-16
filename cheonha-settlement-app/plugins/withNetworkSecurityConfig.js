@@ -24,10 +24,13 @@ module.exports = function withNetworkSecurityConfig(config) {
         </trust-anchors>
     </base-config>
     <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">13.124.120.147</domain>
         <domain includeSubdomains="true">3.35.218.152</domain>
         <domain includeSubdomains="true">ec2-3-35-218-152.ap-northeast-2.compute.amazonaws.com</domain>
         <domain includeSubdomains="true">3.34.125.138</domain>
         <domain includeSubdomains="true">ec2-3-34-125-138.ap-northeast-2.compute.amazonaws.com</domain>
+        <domain includeSubdomains="true">43.201.160.163</domain>
+        <domain includeSubdomains="true">54.180.242.142</domain>
     </domain-config>
 </network-security-config>`;
 

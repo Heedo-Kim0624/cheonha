@@ -8,13 +8,14 @@ const expoExtra =
     | undefined) ?? {};
 const fallbackApiBaseUrl =
   expoExtra.appEnv === "production"
-    ? "http://3.34.125.138"
-    : "http://3.35.218.152";
+    ? "http://43.201.160.163"
+    : "http://13.124.120.147";
 const API_BASE_URL = (
   envApiBaseUrl ||
   expoExtra.apiBaseUrl ||
   fallbackApiBaseUrl
 ).replace(/\/+$/, "");
+export const PRIVACY_POLICY_URL = `${API_BASE_URL}/privacy`;
 
 interface ApiResponse<T> {
   data?: T;
@@ -39,6 +40,30 @@ export async function clearTokens() {
     await SecureStore.deleteItemAsync("accessToken");
     await SecureStore.deleteItemAsync("refreshToken");
   } catch {}
+}
+
+export async function hasStoredSession(): Promise<boolean> {
+  const access = await getAccessToken();
+  const refresh = await getRefreshToken();
+  return Boolean(access || refresh);
+}
+
+export async function restoreStoredSession() {
+  const access = await getAccessToken();
+  const refresh = await getRefreshToken();
+
+  if (!access && refresh) {
+    const refreshed = await refreshAccessToken();
+    if (!refreshed) {
+      return { error: "세션이 만료되었습니다. 다시 로그인해 주세요." };
+    }
+  }
+
+  if (!(await getAccessToken())) {
+    return { error: "저장된 로그인 정보가 없습니다." };
+  }
+
+  return request<ProfileResponse>("/api/v1/mobile/profile/");
 }
 
 async function request<T>(

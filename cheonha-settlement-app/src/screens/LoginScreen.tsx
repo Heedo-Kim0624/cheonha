@@ -1,22 +1,23 @@
 import React, { useState } from "react";
 import {
-  View,
+  ActivityIndicator,
+  Alert,
+  KeyboardAvoidingView,
+  Linking,
+  Platform,
+  ScrollView,
+  StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  StyleSheet,
-  Alert,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  ActivityIndicator,
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { colors, typography } from "../theme";
-import { api, saveTokens } from "../services/api";
+import { api, PRIVACY_POLICY_URL, saveTokens } from "../services/api";
 import { RootStackParamList } from "../navigation/types";
 import TeamCodePicker from "../components/TeamCodePicker";
 
@@ -32,6 +33,14 @@ export default function LoginScreen() {
 
   const handlePasswordChange = (value: string) => {
     setPassword(value.replace(/\D/g, "").slice(0, 4));
+  };
+
+  const openPrivacyPolicy = async () => {
+    try {
+      await Linking.openURL(PRIVACY_POLICY_URL);
+    } catch {
+      Alert.alert("알림", "개인정보처리방침 페이지를 열 수 없습니다.");
+    }
   };
 
   const handleLogin = async () => {
@@ -57,13 +66,14 @@ export default function LoginScreen() {
       return;
     }
 
-    if (data) {
-      await saveTokens(data.access, data.refresh);
-      navigation.replace("Calendar", {
-        profileName: data.name,
-        requiresPasswordChange: data.requires_password_change,
-      });
-    }
+    if (!data) return;
+
+    await saveTokens(data.access, data.refresh);
+    navigation.replace("Calendar", {
+      profileName: data.name,
+      profileTeamCode: data.team_code,
+      requiresPasswordChange: data.requires_password_change,
+    });
   };
 
   return (
@@ -76,33 +86,28 @@ export default function LoginScreen() {
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
         >
-          {/* Logo Area */}
           <View style={styles.logoArea}>
             <View style={styles.logoCircle}>
               <Ionicons name="bus" size={36} color={colors.textInverse} />
             </View>
-            <Text style={styles.appName}>천하정산</Text>
-            <Text style={styles.appDesc}>로그인하여 정산을 확인하세요</Text>
+            <Text style={styles.appName}>CLEVER_CH</Text>
+            <Text style={styles.appDesc}>정산 조회를 위해 로그인해 주세요.</Text>
           </View>
 
-          {/* Form */}
           <View style={styles.formArea}>
-            {/* Name Field */}
             <View style={styles.fieldGroup}>
               <Text style={styles.label}>이름</Text>
               <View style={styles.inputWrapper}>
                 <TextInput
                   style={styles.input}
-                  placeholder="이름을 입력하세요"
+                  placeholder="이름을 입력해 주세요."
                   placeholderTextColor={colors.textMuted}
                   value={name}
                   onChangeText={setName}
-                  autoCapitalize="none"
                 />
               </View>
             </View>
 
-            {/* Team Code Field */}
             <View style={styles.fieldGroup}>
               <Text style={styles.label}>소속 조</Text>
               <TouchableOpacity
@@ -110,12 +115,8 @@ export default function LoginScreen() {
                 onPress={() => setShowPicker(true)}
                 activeOpacity={0.7}
               >
-                <Text
-                  style={[styles.input, !teamCode && styles.placeholder]}
-                >
-                  {teamCode
-                    ? `${teamCode}조`
-                    : "조를 선택하세요 (A-Z)"}
+                <Text style={[styles.input, !teamCode && styles.placeholder]}>
+                  {teamCode ? `${teamCode}조` : "조를 선택해 주세요. (A-Z)"}
                 </Text>
                 <Ionicons
                   name="chevron-down"
@@ -142,7 +143,6 @@ export default function LoginScreen() {
               <Text style={styles.helperText}>초기 비밀번호는 0000입니다.</Text>
             </View>
 
-            {/* Login Button */}
             <TouchableOpacity
               style={[styles.button, loading && styles.buttonDisabled]}
               onPress={handleLogin}
@@ -155,8 +155,15 @@ export default function LoginScreen() {
                 <Text style={styles.buttonText}>로그인</Text>
               )}
             </TouchableOpacity>
-          </View>
 
+            <TouchableOpacity
+              onPress={openPrivacyPolicy}
+              activeOpacity={0.7}
+              style={styles.privacyLink}
+            >
+              <Text style={styles.privacyLinkText}>개인정보처리방침</Text>
+            </TouchableOpacity>
+          </View>
         </ScrollView>
       </KeyboardAvoidingView>
 
@@ -181,19 +188,12 @@ const styles = StyleSheet.create({
   flex: {
     flex: 1,
   },
-  loadingContainer: {
-    justifyContent: "center",
-    alignItems: "center",
-    gap: 12,
-  },
   scrollContent: {
     flexGrow: 1,
     paddingHorizontal: 24,
     justifyContent: "center",
     gap: 32,
   },
-
-  // Logo
   logoArea: {
     alignItems: "center",
     gap: 12,
@@ -214,8 +214,6 @@ const styles = StyleSheet.create({
     ...typography.bodySmall,
     color: colors.textSecondary,
   },
-
-  // Form
   formArea: {
     gap: 20,
   },
@@ -230,7 +228,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     height: 52,
-    borderRadius: 12,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: colors.borderLight,
     paddingHorizontal: 16,
@@ -247,11 +245,9 @@ const styles = StyleSheet.create({
     ...typography.captionSmall,
     color: colors.textSecondary,
   },
-
-  // Button
   button: {
     height: 56,
-    borderRadius: 12,
+    borderRadius: 8,
     backgroundColor: colors.accentBlue,
     justifyContent: "center",
     alignItems: "center",
@@ -263,21 +259,13 @@ const styles = StyleSheet.create({
     ...typography.sectionTitle,
     color: colors.textInverse,
   },
-
-  // Link
-  linkRow: {
-    flexDirection: "row",
-    justifyContent: "center",
+  privacyLink: {
     alignItems: "center",
-    gap: 6,
+    paddingTop: 4,
   },
-  linkText: {
-    ...typography.label,
-    fontWeight: "400",
-    color: colors.textSecondary,
-  },
-  linkAction: {
-    ...typography.label,
-    color: colors.accentLight,
+  privacyLinkText: {
+    ...typography.bodySmall,
+    color: colors.accentBlue,
+    textDecorationLine: "underline",
   },
 });

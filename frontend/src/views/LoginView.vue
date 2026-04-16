@@ -1,79 +1,135 @@
 <template>
-  <div class="flex h-screen">
-    <div class="w-1/2 bg-gradient-to-br from-gray-800 to-gray-700 flex flex-col items-center justify-center p-8">
-      <div class="text-center space-y-4">
-        <h1 class="text-4xl font-bold text-white">천하운수</h1>
-        <p class="text-gray-300 text-lg">정산관리 시스템</p>
+  <div class="flex min-h-screen">
+    <div class="hidden w-1/2 bg-gradient-to-br from-gray-800 to-gray-700 md:flex md:flex-col md:items-center md:justify-center md:p-8">
+      <div class="space-y-4 text-center">
+        <h1 class="text-4xl font-bold text-white">CLEVER_CH</h1>
+        <p class="text-lg text-gray-300">천하운수 정산관리 서비스</p>
       </div>
     </div>
 
-    <div class="w-1/2 bg-white flex flex-col items-center justify-center p-8">
+    <div class="flex w-full flex-col items-center justify-center bg-white p-8 md:w-1/2">
       <div class="w-full max-w-md space-y-8">
-        <!-- 탭 -->
-        <div class="flex gap-4 justify-center">
-          <button @click="mode = 'login'" class="px-6 py-2 rounded-lg font-bold transition-all"
-            :class="mode === 'login' ? 'bg-primary text-white' : 'text-gray-400 hover:text-gray-600'">로그인</button>
-          <button @click="mode = 'signup'" class="px-6 py-2 rounded-lg font-bold transition-all"
-            :class="mode === 'signup' ? 'bg-primary text-white' : 'text-gray-400 hover:text-gray-600'">회원가입</button>
+        <div class="flex justify-center gap-4">
+          <button
+            @click="mode = 'login'"
+            class="rounded-lg px-6 py-2 font-bold transition-all"
+            :class="mode === 'login' ? 'bg-primary text-white' : 'text-gray-400 hover:text-gray-600'"
+          >
+            로그인
+          </button>
+          <button
+            @click="mode = 'signup'"
+            class="rounded-lg px-6 py-2 font-bold transition-all"
+            :class="mode === 'signup' ? 'bg-primary text-white' : 'text-gray-400 hover:text-gray-600'"
+          >
+            회원가입
+          </button>
         </div>
 
-        <!-- 로그인 -->
         <form v-if="mode === 'login'" @submit.prevent="handleLogin" class="space-y-5">
           <div>
-            <label class="block font-medium text-text mb-2">아이디</label>
-            <input v-model="email" type="text" placeholder="아이디 입력"
-              class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary" required />
+            <label class="mb-2 block font-medium text-text">아이디</label>
+            <input
+              v-model="email"
+              type="text"
+              placeholder="아이디 입력"
+              class="w-full rounded-lg border border-gray-300 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-primary"
+              required
+            />
           </div>
           <div>
-            <label class="block font-medium text-text mb-2">비밀번호</label>
-            <input v-model="password" type="password" placeholder="비밀번호 입력"
-              class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary" required />
+            <label class="mb-2 block font-medium text-text">비밀번호</label>
+            <input
+              v-model="password"
+              type="password"
+              placeholder="비밀번호 입력"
+              class="w-full rounded-lg border border-gray-300 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-primary"
+              required
+            />
           </div>
-          <div v-if="errorMessage" class="p-3 bg-red-50 text-danger rounded-lg">{{ errorMessage }}</div>
-          <button type="submit" :disabled="isLoading"
-            class="w-full py-3 bg-primary text-white font-bold rounded-lg hover:opacity-90 disabled:opacity-50">
+          <div v-if="errorMessage" class="rounded-lg bg-red-50 p-3 text-danger">{{ errorMessage }}</div>
+          <button
+            type="submit"
+            :disabled="isLoading"
+            class="w-full rounded-lg bg-primary py-3 font-bold text-white hover:opacity-90 disabled:opacity-50"
+          >
             {{ isLoading ? '로그인 중...' : '로그인' }}
           </button>
         </form>
 
-        <!-- 회원가입 (팀장) -->
         <form v-if="mode === 'signup'" @submit.prevent="handleSignup" class="space-y-5">
           <div>
-            <label class="block font-medium text-text mb-2">아이디</label>
-            <input v-model="signupForm.username" type="text" placeholder="아이디"
-              class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary" required />
+            <label class="mb-2 block font-medium text-text">아이디</label>
+            <input
+              v-model="signupForm.username"
+              type="text"
+              placeholder="아이디"
+              class="w-full rounded-lg border border-gray-300 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-primary"
+              required
+            />
           </div>
           <div>
-            <label class="block font-medium text-text mb-2">이름</label>
-            <input v-model="signupForm.name" type="text" placeholder="실명"
-              class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary" required />
+            <label class="mb-2 block font-medium text-text">이름</label>
+            <input
+              v-model="signupForm.name"
+              type="text"
+              placeholder="이름"
+              class="w-full rounded-lg border border-gray-300 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-primary"
+              required
+            />
           </div>
           <div>
-            <label class="block font-medium text-text mb-2">소속 팀</label>
-            <select v-model="signupForm.team_code"
-              class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary" required>
-              <option value="">팀 선택</option>
+            <label class="mb-2 block font-medium text-text">소속 조</label>
+            <select
+              v-model="signupForm.team_code"
+              class="w-full rounded-lg border border-gray-300 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-primary"
+              required
+            >
+              <option value="">조 선택</option>
               <option v-for="t in availableTeams" :key="t.id" :value="t.code">{{ t.name }} ({{ t.code }})</option>
             </select>
           </div>
           <div>
-            <label class="block font-medium text-text mb-2">비밀번호</label>
-            <input v-model="signupForm.password" type="password" placeholder="8자 이상"
-              class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary" required />
+            <label class="mb-2 block font-medium text-text">비밀번호</label>
+            <input
+              v-model="signupForm.password"
+              type="password"
+              placeholder="8자 이상"
+              class="w-full rounded-lg border border-gray-300 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-primary"
+              required
+            />
           </div>
           <div>
-            <label class="block font-medium text-text mb-2">비밀번호 확인</label>
-            <input v-model="signupForm.password_confirm" type="password" placeholder="비밀번호 재입력"
-              class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary" required />
+            <label class="mb-2 block font-medium text-text">비밀번호 확인</label>
+            <input
+              v-model="signupForm.password_confirm"
+              type="password"
+              placeholder="비밀번호 재입력"
+              class="w-full rounded-lg border border-gray-300 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-primary"
+              required
+            />
           </div>
-          <div v-if="signupMessage" class="p-3 rounded-lg" :class="signupSuccess ? 'bg-green-50 text-green-700' : 'bg-red-50 text-danger'">
+          <div
+            v-if="signupMessage"
+            class="rounded-lg p-3"
+            :class="signupSuccess ? 'bg-green-50 text-green-700' : 'bg-red-50 text-danger'"
+          >
             {{ signupMessage }}
           </div>
-          <button type="submit" :disabled="isLoading"
-            class="w-full py-3 bg-primary text-white font-bold rounded-lg hover:opacity-90 disabled:opacity-50">
-            {{ isLoading ? '처리 중...' : '회원가입 (관리자 승인 필요)' }}
+          <button
+            type="submit"
+            :disabled="isLoading"
+            class="w-full rounded-lg bg-primary py-3 font-bold text-white hover:opacity-90 disabled:opacity-50"
+          >
+            {{ isLoading ? '처리 중...' : '회원가입 (관리자 확인 필요)' }}
           </button>
         </form>
+
+        <div class="pt-2 text-center">
+          <a href="/privacy" target="_blank" rel="noreferrer" class="text-sm text-[#2a6db0] underline">
+            개인정보처리방침
+          </a>
+        </div>
       </div>
     </div>
   </div>
@@ -103,26 +159,32 @@ const loadTeams = async () => {
   try {
     const resp = await client.get('/accounts/teams/')
     availableTeams.value = resp.data.results || resp.data || []
-  } catch (e) {
+  } catch {
     availableTeams.value = []
   }
 }
 
 const handleLogin = async () => {
-  isLoading.value = true; errorMessage.value = ''
+  isLoading.value = true
+  errorMessage.value = ''
   try {
     await authStore.login(email.value, password.value)
     await router.push(authStore.isAdmin ? '/' : '/dispatch')
   } catch (e) {
-    errorMessage.value = e.response?.data?.detail || '로그인 실패'
-  } finally { isLoading.value = false }
+    errorMessage.value = e.response?.data?.detail || '로그인에 실패했습니다.'
+  } finally {
+    isLoading.value = false
+  }
 }
 
 const handleSignup = async () => {
   if (signupForm.password !== signupForm.password_confirm) {
-    signupMessage.value = '비밀번호가 일치하지 않습니다'; signupSuccess.value = false; return
+    signupMessage.value = '비밀번호가 일치하지 않습니다.'
+    signupSuccess.value = false
+    return
   }
-  isLoading.value = true; signupMessage.value = ''
+  isLoading.value = true
+  signupMessage.value = ''
   try {
     await client.post('/accounts/signup/', {
       username: signupForm.username,
@@ -131,12 +193,17 @@ const handleSignup = async () => {
       password_confirm: signupForm.password_confirm,
       team_code: signupForm.team_code,
     })
-    signupMessage.value = '회원가입이 완료되었습니다. 관리자 승인 후 로그인 가능합니다.'
+    signupMessage.value = '회원가입이 완료되었습니다. 관리자 확인 후 로그인할 수 있습니다.'
     signupSuccess.value = true
   } catch (e) {
-    signupMessage.value = e.response?.data?.detail || e.response?.data?.username?.[0] || '회원가입 실패'
+    signupMessage.value =
+      e.response?.data?.detail ||
+      e.response?.data?.username?.[0] ||
+      '회원가입에 실패했습니다.'
     signupSuccess.value = false
-  } finally { isLoading.value = false }
+  } finally {
+    isLoading.value = false
+  }
 }
 
 onMounted(loadTeams)

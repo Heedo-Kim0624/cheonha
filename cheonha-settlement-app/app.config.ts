@@ -3,14 +3,15 @@ import { ExpoConfig, ConfigContext } from "expo/config";
 const appVariant = (process.env.APP_VARIANT || "test").toLowerCase();
 const isProduction = appVariant === "production";
 const defaultApiBaseUrl = isProduction
-  ? "http://3.34.125.138"
-  : "http://3.35.218.152";
+  ? "http://43.201.160.163"
+  : "http://13.124.120.147";
+const appName = isProduction ? "CLEVER_CH" : "CLEVER_CH DEV";
 
 const config = ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
-  name: isProduction ? "천하정산" : "천하정산 DEV",
+  name: appName,
   slug: "cheonha-settlement-app",
-  version: "1.0.1",
+  version: "1.0.6",
   orientation: "portrait",
   icon: "./assets/icon.png",
   userInterfaceStyle: "light",

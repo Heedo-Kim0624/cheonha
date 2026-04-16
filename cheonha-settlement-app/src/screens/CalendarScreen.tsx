@@ -1,15 +1,15 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
-  Alert,
   ActivityIndicator,
-  Modal,
-  TextInput,
+  Alert,
   KeyboardAvoidingView,
+  Modal,
   Platform,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -17,6 +17,14 @@ import { RouteProp, useNavigation, useRoute } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { colors, typography } from "../theme";
 import { api, clearTokens, SettlementDay } from "../services/api";
+import {
+  getStoredVehicleNumber,
+  getWorkSessionState,
+  requestWorkSessionPermissions,
+  saveVehicleNumber,
+  startWorkSession,
+  stopWorkSession,
+} from "../services/workSession";
 import { RootStackParamList } from "../navigation/types";
 
 type Nav = NativeStackNavigationProp<RootStackParamList, "Calendar">;
@@ -24,39 +32,58 @@ type CalendarRoute = RouteProp<RootStackParamList, "Calendar">;
 
 const DAY_LABELS = ["월", "화", "수", "목", "금", "토", "일"];
 const HIT_SLOP = { top: 12, bottom: 12, left: 12, right: 12 };
+const EMPTY_SESSION_STATE = {
+  running: false,
+  sampleCount: 0,
+  vehicleNumber: "",
+  exportedUri: null,
+  exportedFileName: null,
+};
 
 export default function CalendarScreen() {
   const navigation = useNavigation<Nav>();
   const route = useRoute<CalendarRoute>();
   const initialProfileName = route.params?.profileName ?? "";
+  const initialProfileTeamCode = route.params?.profileTeamCode ?? "";
   const initialPasswordChangeRequired =
     route.params?.requiresPasswordChange ?? false;
+
   const [year, setYear] = useState(new Date().getFullYear());
   const [month, setMonth] = useState(new Date().getMonth() + 1);
   const [profileName, setProfileName] = useState(initialProfileName);
+  const [profileTeamCode, setProfileTeamCode] = useState(initialProfileTeamCode);
   const [settlements, setSettlements] = useState<SettlementDay[]>([]);
   const [totalBoxes, setTotalBoxes] = useState(0);
   const [totalAmount, setTotalAmount] = useState(0);
   const [loading, setLoading] = useState(true);
+
   const [passwordChangeRequired, setPasswordChangeRequired] = useState(
     initialPasswordChangeRequired
   );
   const [showPasswordModal, setShowPasswordModal] = useState(
     initialPasswordChangeRequired
   );
+  const [showVehicleModal, setShowVehicleModal] = useState(false);
   const [newPassword, setNewPassword] = useState("");
   const [newPasswordConfirm, setNewPasswordConfirm] = useState("");
   const [passwordSaving, setPasswordSaving] = useState(false);
+  const [vehicleSaving, setVehicleSaving] = useState(false);
+
+  const [vehicleNumber, setVehicleNumber] = useState("");
+  const [vehicleNumberDraft, setVehicleNumberDraft] = useState("");
+  const [sessionRunning, setSessionRunning] = useState(false);
+  const [sessionBusy, setSessionBusy] = useState(false);
 
   const monthStr = `${year}-${String(month).padStart(2, "0")}`;
 
   const fetchData = useCallback(async () => {
     setLoading(true);
 
-    // Fetch profile
     const profileRes = await api.getProfile();
     if (profileRes.data) {
       setProfileName(profileRes.data.name);
+      setProfileTeamCode(profileRes.data.team_code);
+
       if (profileRes.data.requires_password_change) {
         setPasswordChangeRequired(true);
         setShowPasswordModal(true);
@@ -66,15 +93,19 @@ export default function CalendarScreen() {
         setLoading(false);
         return;
       }
+
       if (passwordChangeRequired) {
         setPasswordChangeRequired(false);
       }
-    } else if (profileRes.error?.includes("세션")) {
+    } else if (profileRes.error?.includes("?몄뀡") || profileRes.error?.includes("세션")) {
       navigation.replace("Login");
+      return;
+    } else if (profileRes.error) {
+      Alert.alert("오류", profileRes.error);
+      setLoading(false);
       return;
     }
 
-    // Fetch settlements
     const settleRes = await api.getSettlements(monthStr);
     if (settleRes.data) {
       setSettlements(settleRes.data.days);
@@ -91,25 +122,93 @@ export default function CalendarScreen() {
     fetchData();
   }, [fetchData]);
 
+  useEffect(() => {
+    let mounted = true;
+
+    (async () => {
+      const sessionState = await getWorkSessionState().catch(() => EMPTY_SESSION_STATE);
+      const storedVehicle =
+        profileName && profileTeamCode
+          ? await getStoredVehicleNumber(profileName, profileTeamCode)
+          : "";
+
+      if (!mounted) return;
+
+      const resolvedVehicle =
+        sessionState.running && sessionState.vehicleNumber
+          ? sessionState.vehicleNumber
+          : storedVehicle;
+
+      setVehicleNumber(resolvedVehicle);
+      setVehicleNumberDraft(resolvedVehicle);
+      setSessionRunning(sessionState.running);
+    })();
+
+    return () => {
+      mounted = false;
+    };
+  }, [profileName, profileTeamCode]);
+
+  useEffect(() => {
+    if (!sessionRunning) return;
+
+    const interval = setInterval(async () => {
+      const state = await getWorkSessionState().catch(() => null);
+      if (!state) return;
+
+      setSessionRunning(state.running);
+      if (state.running && state.vehicleNumber) {
+        setVehicleNumber(state.vehicleNumber);
+        setVehicleNumberDraft(state.vehicleNumber);
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [sessionRunning]);
+
+  const calendarWeeks = useMemo(
+    () => buildCalendarWeeks(year, month, settlements),
+    [year, month, settlements]
+  );
+
+  const today = new Date();
+  const isCurrentMonth =
+    today.getFullYear() === year && today.getMonth() + 1 === month;
+  const todayDate = today.getDate();
+
+  const ensureProfileIdentity = () => {
+    if (profileName.trim() && profileTeamCode.trim()) {
+      return true;
+    }
+
+    Alert.alert("알림", "사용자 정보를 다시 불러온 뒤 시도해 주세요.");
+    return false;
+  };
+
   const handlePrevMonth = () => {
     if (month === 1) {
-      setYear((y) => y - 1);
+      setYear((prev) => prev - 1);
       setMonth(12);
-    } else {
-      setMonth((m) => m - 1);
+      return;
     }
+    setMonth((prev) => prev - 1);
   };
 
   const handleNextMonth = () => {
     if (month === 12) {
-      setYear((y) => y + 1);
+      setYear((prev) => prev + 1);
       setMonth(1);
-    } else {
-      setMonth((m) => m + 1);
+      return;
     }
+    setMonth((prev) => prev + 1);
   };
 
   const handleLogout = () => {
+    if (sessionRunning) {
+      Alert.alert("알림", "근무 종료 후 로그아웃해 주세요.");
+      return;
+    }
+
     Alert.alert("로그아웃", "로그아웃 하시겠습니까?", [
       { text: "취소", style: "cancel" },
       {
@@ -135,6 +234,12 @@ export default function CalendarScreen() {
     setNewPasswordConfirm("");
   };
 
+  const closeVehicleModal = () => {
+    if (vehicleSaving) return;
+    setVehicleNumberDraft(vehicleNumber);
+    setShowVehicleModal(false);
+  };
+
   const handleForceLogout = async () => {
     await clearTokens();
     setPasswordChangeRequired(false);
@@ -149,28 +254,49 @@ export default function CalendarScreen() {
       Alert.alert("알림", "비밀번호는 4자리 숫자로 입력해 주세요.");
       return;
     }
+
     if (passwordChangeRequired && newPassword === "0000") {
-      Alert.alert(
-        "\uc54c\ub9bc",
-        "\ucd08\uae30 \ube44\ubc00\ubc88\ud638 0000\uacfc \ub2e4\ub978 4\uc790\ub9ac\ub97c \uc785\ub825\ud574 \uc8fc\uc138\uc694."
-      );
+      Alert.alert("알림", "초기 비밀번호 0000과 다른 4자리 숫자를 입력해 주세요.");
       return;
     }
+
     if (newPassword !== newPasswordConfirm) {
       Alert.alert("알림", "비밀번호 확인이 일치하지 않습니다.");
       return;
     }
 
+    const trimmedVehicleNumber = vehicleNumberDraft.trim();
+    if (passwordChangeRequired && !trimmedVehicleNumber) {
+      Alert.alert("알림", "차량번호를 입력해 주세요.");
+      return;
+    }
+
+    if (passwordChangeRequired && !ensureProfileIdentity()) {
+      return;
+    }
+
     setPasswordSaving(true);
     const { data, error } = await api.changePassword(newPassword, newPasswordConfirm);
+
+    if (!error && passwordChangeRequired) {
+      await saveVehicleNumber(
+        profileName,
+        profileTeamCode,
+        trimmedVehicleNumber
+      );
+      setVehicleNumber(trimmedVehicleNumber);
+      setVehicleNumberDraft(trimmedVehicleNumber);
+    }
+
     setPasswordSaving(false);
 
     if (error) {
-      if (error.includes("세션")) {
+      if (error.includes("?몄뀡") || error.includes("세션")) {
         await clearTokens();
         navigation.replace("Login");
         return;
       }
+
       Alert.alert("오류", error);
       return;
     }
@@ -183,54 +309,106 @@ export default function CalendarScreen() {
     Alert.alert("완료", data?.detail || "비밀번호가 변경되었습니다.");
   };
 
-  // Build calendar grid
-  const calendarWeeks = buildCalendarWeeks(year, month, settlements);
-  const today = new Date();
-  const isCurrentMonth =
-    today.getFullYear() === year && today.getMonth() + 1 === month;
-  const todayDate = today.getDate();
+  const handleSaveVehicleNumber = async () => {
+    const trimmedVehicleNumber = vehicleNumberDraft.trim();
+    if (!trimmedVehicleNumber) {
+      Alert.alert("알림", "차량번호를 입력해 주세요.");
+      return;
+    }
+
+    if (!ensureProfileIdentity()) {
+      return;
+    }
+
+    setVehicleSaving(true);
+    await saveVehicleNumber(profileName, profileTeamCode, trimmedVehicleNumber);
+    setVehicleNumber(trimmedVehicleNumber);
+    setVehicleNumberDraft(trimmedVehicleNumber);
+    setVehicleSaving(false);
+    setShowVehicleModal(false);
+    Alert.alert("완료", "차량번호가 저장되었습니다.");
+  };
+
+  const handleStartSession = async () => {
+    const trimmedVehicleNumber = vehicleNumber.trim();
+    if (!trimmedVehicleNumber) {
+      Alert.alert("알림", "차량번호 변경에서 차량번호를 먼저 등록해 주세요.");
+      return;
+    }
+
+    setSessionBusy(true);
+    try {
+      const permissionResult = await requestWorkSessionPermissions();
+      if (!permissionResult.granted) {
+        Alert.alert(
+          "권한 필요",
+          "위치, 블루투스, 알림, 이미지 접근 권한이 있어야 근무 기록을 시작할 수 있습니다."
+        );
+        return;
+      }
+
+      if (!permissionResult.backgroundLocationGranted) {
+        Alert.alert(
+          "안내",
+          "백그라운드 위치 권한이 없어 앱이 백그라운드로 가면 위치 기록이 제한될 수 있습니다."
+        );
+      }
+
+      await startWorkSession(profileName, trimmedVehicleNumber);
+      setSessionRunning(true);
+      Alert.alert("시작", "근무 기록을 시작했습니다.");
+    } catch (error: any) {
+      Alert.alert("오류", error?.message || "근무 기록을 시작할 수 없습니다.");
+    } finally {
+      setSessionBusy(false);
+    }
+  };
+
+  const handleStopSession = async () => {
+    Alert.alert("근무 종료", "근무 기록을 종료하고 CSV를 공유하시겠습니까?", [
+      { text: "취소", style: "cancel" },
+      {
+        text: "근무 종료",
+        style: "destructive",
+        onPress: async () => {
+          setSessionBusy(true);
+          try {
+            await stopWorkSession();
+            setSessionRunning(false);
+          } catch (error: any) {
+            Alert.alert("오류", error?.message || "근무 기록을 종료할 수 없습니다.");
+          } finally {
+            setSessionBusy(false);
+          }
+        },
+      },
+    ]);
+  };
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Header */}
       <View style={styles.header}>
         <View style={styles.monthSelector}>
           <TouchableOpacity onPress={handlePrevMonth} hitSlop={HIT_SLOP}>
-            <Ionicons
-              name="chevron-back"
-              size={24}
-              color={colors.textPrimary}
-            />
+            <Ionicons name="chevron-back" size={24} color={colors.textPrimary} />
           </TouchableOpacity>
           <Text style={styles.monthTitle}>
             {year}년 {month}월
           </Text>
           <TouchableOpacity onPress={handleNextMonth} hitSlop={HIT_SLOP}>
-            <Ionicons
-              name="chevron-forward"
-              size={24}
-              color={colors.textPrimary}
-            />
+            <Ionicons name="chevron-forward" size={24} color={colors.textPrimary} />
           </TouchableOpacity>
         </View>
       </View>
 
-      <View style={styles.toolRow}>
-        <View style={styles.profileBtn}>
-          <Ionicons
-            name="person-outline"
-            size={18}
-            color={colors.textSecondary}
-          />
+      <View style={styles.profileRow}>
+        <View style={styles.profilePill}>
+          <Ionicons name="person-outline" size={18} color={colors.textSecondary} />
           <Text style={styles.profileName}>{profileName}</Text>
+          <Text style={styles.profileVehicle}>
+            {vehicleNumber ? `· ${vehicleNumber}` : "· 차량 미등록"}
+          </Text>
         </View>
-        <TouchableOpacity
-          style={styles.toolButton}
-          onPress={() => setShowPasswordModal(true)}
-          activeOpacity={0.8}
-        >
-          <Text style={styles.toolButtonText}>비밀번호 변경</Text>
-        </TouchableOpacity>
         <TouchableOpacity
           style={[styles.toolButton, styles.logoutButton]}
           onPress={handleLogout}
@@ -240,15 +418,35 @@ export default function CalendarScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Day Headers */}
+      <View style={styles.actionRow}>
+        <TouchableOpacity
+          style={styles.toolButton}
+          onPress={() => setShowPasswordModal(true)}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.toolButtonText}>비밀번호 변경</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[
+            styles.toolButton,
+            (sessionRunning || sessionBusy) && styles.buttonDisabled,
+          ]}
+          onPress={() => setShowVehicleModal(true)}
+          activeOpacity={0.8}
+          disabled={sessionRunning || sessionBusy}
+        >
+          <Text style={styles.toolButtonText}>차량번호 변경</Text>
+        </TouchableOpacity>
+      </View>
+
       <View style={styles.dayHeaderRow}>
-        {DAY_LABELS.map((label, i) => (
+        {DAY_LABELS.map((label, index) => (
           <Text
             key={label}
             style={[
               styles.dayHeaderText,
-              i === 5 && { color: colors.saturdayBlue },
-              i === 6 && { color: colors.sundayRed },
+              index === 5 && { color: colors.saturdayBlue },
+              index === 6 && { color: colors.sundayRed },
             ]}
           >
             {label}
@@ -256,35 +454,32 @@ export default function CalendarScreen() {
         ))}
       </View>
 
-      {/* Calendar Grid */}
       <View style={styles.calendarGrid}>
         {loading ? (
           <View style={styles.loadingCenter}>
             <ActivityIndicator size="large" color={colors.accentLight} />
           </View>
         ) : (
-          calendarWeeks.map((week, wi) => (
-            <View key={wi} style={styles.weekRow}>
-              {week.map((cell, di) => {
-                const isToday =
-                  isCurrentMonth && cell.day === todayDate;
-                const isSaturday = di === 5;
-                const isSunday = di === 6;
-                const hasData =
-                  cell.day > 0 && cell.boxCount !== undefined;
+          calendarWeeks.map((week, weekIndex) => (
+            <View key={weekIndex} style={styles.weekRow}>
+              {week.map((cell, dayIndex) => {
+                const isToday = isCurrentMonth && cell.day === todayDate;
+                const isSaturday = dayIndex === 5;
+                const isSunday = dayIndex === 6;
+                const hasData = cell.day > 0 && cell.boxCount !== undefined;
                 const isEmpty =
                   cell.day === 0 || (!hasData && (isSaturday || isSunday));
 
                 return (
                   <View
-                    key={di}
+                    key={dayIndex}
                     style={[
                       styles.cell,
                       isEmpty && styles.cellEmpty,
                       isToday && styles.cellToday,
                     ]}
                   >
-                    {cell.day > 0 && (
+                    {cell.day > 0 ? (
                       <>
                         <Text
                           style={[
@@ -296,14 +491,12 @@ export default function CalendarScreen() {
                         >
                           {cell.day}
                         </Text>
-                        {hasData && (
+                        {hasData ? (
                           <>
                             <Text
                               style={[
                                 styles.cellBox,
-                                isToday && {
-                                  color: colors.whiteAlpha60,
-                                },
+                                isToday && { color: colors.whiteAlpha60 },
                               ]}
                             >
                               {cell.boxCount}
@@ -311,17 +504,15 @@ export default function CalendarScreen() {
                             <Text
                               style={[
                                 styles.cellAmount,
-                                isToday && {
-                                  color: colors.whiteAlpha60,
-                                },
+                                isToday && { color: colors.whiteAlpha60 },
                               ]}
                             >
-                              {formatManWon(cell.amount!)}
+                              {formatManWon(cell.amount ?? 0)}
                             </Text>
                           </>
-                        )}
+                        ) : null}
                       </>
-                    )}
+                    ) : null}
                   </View>
                 );
               })}
@@ -330,7 +521,27 @@ export default function CalendarScreen() {
         )}
       </View>
 
-      {/* Monthly Summary */}
+      <View style={styles.workButtonWrap}>
+        <TouchableOpacity
+          style={[
+            styles.workButton,
+            sessionRunning ? styles.workStopButton : styles.workStartButton,
+            sessionBusy && styles.buttonDisabled,
+          ]}
+          activeOpacity={0.85}
+          disabled={sessionBusy}
+          onPress={sessionRunning ? handleStopSession : handleStartSession}
+        >
+          {sessionBusy ? (
+            <ActivityIndicator color={colors.textInverse} />
+          ) : (
+            <Text style={styles.workButtonText}>
+              {sessionRunning ? "근무종료" : "근무시작"}
+            </Text>
+          )}
+        </TouchableOpacity>
+      </View>
+
       <View style={styles.summary}>
         <View style={styles.summaryHalf}>
           <Text style={styles.summaryLabel}>이번 달 총 박스</Text>
@@ -347,7 +558,7 @@ export default function CalendarScreen() {
         </View>
       </View>
 
-      {passwordChangeRequired && <View style={styles.lockedOverlay} />}
+      {passwordChangeRequired ? <View style={styles.lockedOverlay} /> : null}
 
       <Modal
         visible={showPasswordModal}
@@ -362,12 +573,14 @@ export default function CalendarScreen() {
           >
             <View style={styles.modalCard}>
               <Text style={styles.modalTitle}>
-                {passwordChangeRequired ? "비밀번호를 변경하세요" : "비밀번호 변경"}
+                {passwordChangeRequired
+                  ? "비밀번호를 변경해 주세요"
+                  : "비밀번호 변경"}
               </Text>
               <Text style={styles.modalSubtitle}>
                 {passwordChangeRequired
-                  ? "초기 비밀번호로 로그인했습니다. 계속하려면 비밀번호를 변경하세요."
-                  : "새 비밀번호 4자리 숫자를 입력해 주세요."}
+                  ? "초기 비밀번호로 로그인했습니다. 계속하려면 비밀번호와 차량번호를 먼저 등록해야 합니다."
+                  : "새 비밀번호 4자리를 입력해 주세요."}
               </Text>
 
               <View style={styles.modalField}>
@@ -398,6 +611,21 @@ export default function CalendarScreen() {
                 />
               </View>
 
+              {passwordChangeRequired ? (
+                <View style={styles.modalField}>
+                  <Text style={styles.modalLabel}>차량번호</Text>
+                  <TextInput
+                    style={styles.modalInput}
+                    value={vehicleNumberDraft}
+                    onChangeText={setVehicleNumberDraft}
+                    placeholder="서울12배1234"
+                    placeholderTextColor={colors.textMuted}
+                    autoCapitalize="characters"
+                    autoCorrect={false}
+                  />
+                </View>
+              ) : null}
+
               <View style={styles.modalButtonRow}>
                 <TouchableOpacity
                   style={[styles.modalButton, styles.modalCancelButton]}
@@ -426,22 +654,74 @@ export default function CalendarScreen() {
           </KeyboardAvoidingView>
         </View>
       </Modal>
+
+      <Modal
+        visible={showVehicleModal}
+        transparent
+        animationType="fade"
+        onRequestClose={closeVehicleModal}
+      >
+        <View style={styles.modalBackdrop}>
+          <KeyboardAvoidingView
+            behavior={Platform.OS === "ios" ? "padding" : undefined}
+            style={styles.modalCenter}
+          >
+            <View style={styles.modalCard}>
+              <Text style={styles.modalTitle}>차량번호 변경</Text>
+              <Text style={styles.modalSubtitle}>
+                근무 기록에 사용할 차량번호를 저장합니다.
+              </Text>
+
+              <View style={styles.modalField}>
+                <Text style={styles.modalLabel}>차량번호</Text>
+                <TextInput
+                  style={styles.modalInput}
+                  value={vehicleNumberDraft}
+                  onChangeText={setVehicleNumberDraft}
+                  placeholder="서울12배1234"
+                  placeholderTextColor={colors.textMuted}
+                  autoCapitalize="characters"
+                  autoCorrect={false}
+                />
+              </View>
+
+              <View style={styles.modalButtonRow}>
+                <TouchableOpacity
+                  style={[styles.modalButton, styles.modalCancelButton]}
+                  onPress={closeVehicleModal}
+                  disabled={vehicleSaving}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.modalCancelButtonText}>취소</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.modalButton, vehicleSaving && styles.buttonDisabled]}
+                  onPress={handleSaveVehicleNumber}
+                  disabled={vehicleSaving}
+                  activeOpacity={0.8}
+                >
+                  {vehicleSaving ? (
+                    <ActivityIndicator color={colors.textInverse} />
+                  ) : (
+                    <Text style={styles.modalButtonText}>저장</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </KeyboardAvoidingView>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
 
-// --- Helper functions ---
-
 function formatManWon(amount: number): string {
   const man = amount / 10000;
-  if (man === Math.floor(man)) {
-    return `${man.toFixed(0)}만`;
-  }
-  return `${man.toFixed(1)}만`;
+  return Number.isInteger(man) ? `${man.toFixed(0)}만` : `${man.toFixed(1)}만`;
 }
 
 interface CalendarCell {
-  day: number; // 0 = empty
+  day: number;
   boxCount?: number;
   amount?: number;
 }
@@ -454,38 +734,36 @@ function buildCalendarWeeks(
   const firstDay = new Date(year, month - 1, 1);
   const daysInMonth = new Date(year, month, 0).getDate();
 
-  // Monday=0 ... Sunday=6
-  let startDow = firstDay.getDay() - 1;
-  if (startDow < 0) startDow = 6;
+  let startDayOfWeek = firstDay.getDay() - 1;
+  if (startDayOfWeek < 0) startDayOfWeek = 6;
 
-  // Build settlement lookup
   const lookup = new Map<number, SettlementDay>();
-  for (const s of settlements) {
-    const d = parseInt(s.date.split("-")[2], 10);
-    lookup.set(d, s);
-  }
+  settlements.forEach((settlement) => {
+    const day = Number.parseInt(settlement.date.split("-")[2], 10);
+    lookup.set(day, settlement);
+  });
 
   const weeks: CalendarCell[][] = [];
   let currentDay = 1;
 
-  for (let w = 0; w < 6; w++) {
+  for (let week = 0; week < 6; week += 1) {
     if (currentDay > daysInMonth) break;
 
-    const week: CalendarCell[] = [];
-    for (let d = 0; d < 7; d++) {
-      if ((w === 0 && d < startDow) || currentDay > daysInMonth) {
-        week.push({ day: 0 });
+    const cells: CalendarCell[] = [];
+    for (let day = 0; day < 7; day += 1) {
+      if ((week === 0 && day < startDayOfWeek) || currentDay > daysInMonth) {
+        cells.push({ day: 0 });
       } else {
-        const settle = lookup.get(currentDay);
-        week.push({
+        const settlement = lookup.get(currentDay);
+        cells.push({
           day: currentDay,
-          boxCount: settle?.box_count,
-          amount: settle?.amount,
+          boxCount: settlement?.box_count,
+          amount: settlement?.amount,
         });
-        currentDay++;
+        currentDay += 1;
       }
     }
-    weeks.push(week);
+    weeks.push(cells);
   }
 
   return weeks;
@@ -496,8 +774,6 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.bgPrimary,
   },
-
-  // Header
   header: {
     justifyContent: "center",
     alignItems: "center",
@@ -515,32 +791,43 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: colors.textPrimary,
   },
-  toolRow: {
+  profileRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
     paddingHorizontal: 16,
     paddingBottom: 8,
   },
-  profileBtn: {
+  profilePill: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
     flex: 1,
-    paddingVertical: 6,
+    paddingVertical: 8,
     paddingHorizontal: 12,
-    borderRadius: 9999,
+    borderRadius: 999,
     backgroundColor: colors.bgSecondary,
   },
   profileName: {
-    fontSize: 12,
-    fontWeight: "500",
+    ...typography.caption,
+    color: colors.textPrimary,
+  },
+  profileVehicle: {
+    ...typography.captionSmall,
     color: colors.textSecondary,
+    flexShrink: 1,
+  },
+  actionRow: {
+    flexDirection: "row",
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingBottom: 8,
   },
   toolButton: {
+    flex: 1,
     height: 36,
     paddingHorizontal: 12,
-    borderRadius: 10,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: colors.borderLight,
     alignItems: "center",
@@ -548,14 +835,13 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bgPrimary,
   },
   logoutButton: {
+    flex: 0,
     backgroundColor: colors.bgSecondary,
   },
   toolButtonText: {
     ...typography.captionSmall,
     color: colors.textPrimary,
   },
-
-  // Day Headers
   dayHeaderRow: {
     flexDirection: "row",
     height: 28,
@@ -567,15 +853,13 @@ const styles = StyleSheet.create({
     ...typography.captionSmall,
     color: colors.textMuted,
   },
-
-  // Calendar Grid
   calendarGrid: {
     flex: 1,
   },
   loadingCenter: {
     flex: 1,
-    justifyContent: "center",
     alignItems: "center",
+    justifyContent: "center",
   },
   weekRow: {
     flex: 1,
@@ -608,8 +892,27 @@ const styles = StyleSheet.create({
     ...typography.calendarAmount,
     color: colors.accentBlue,
   },
-
-  // Summary
+  workButtonWrap: {
+    marginHorizontal: 16,
+    marginBottom: 12,
+  },
+  workButton: {
+    width: "100%",
+    height: 52,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  workStartButton: {
+    backgroundColor: colors.accentBlue,
+  },
+  workStopButton: {
+    backgroundColor: colors.sundayRed,
+  },
+  workButtonText: {
+    ...typography.label,
+    color: colors.textInverse,
+  },
   summary: {
     flexDirection: "row",
     alignItems: "center",
@@ -652,7 +955,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
   },
   modalCard: {
-    borderRadius: 16,
+    borderRadius: 8,
     backgroundColor: colors.bgPrimary,
     padding: 20,
     gap: 16,
@@ -674,7 +977,7 @@ const styles = StyleSheet.create({
   },
   modalInput: {
     height: 52,
-    borderRadius: 12,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: colors.borderLight,
     paddingHorizontal: 16,
@@ -688,7 +991,7 @@ const styles = StyleSheet.create({
   modalButton: {
     flex: 1,
     height: 48,
-    borderRadius: 12,
+    borderRadius: 8,
     backgroundColor: colors.accentBlue,
     alignItems: "center",
     justifyContent: "center",

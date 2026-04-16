@@ -3,6 +3,7 @@ export type RootStackParamList = {
   Calendar:
     | {
         profileName?: string;
+        profileTeamCode?: string;
         requiresPasswordChange?: boolean;
       }
     | undefined;

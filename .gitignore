@@ -68,3 +68,6 @@ cheonha-settlement-app/apk-output/
 cheonha-settlement-app/android/
 cheonha-settlement-app/ios/
 cheonha-settlement-app/credentials.json
+barometer-app/
+beacon-app/
+cameralog-main/
