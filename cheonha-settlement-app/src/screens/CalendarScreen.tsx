@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   AppState,
+  Keyboard,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -220,7 +221,7 @@ export default function CalendarScreen() {
   }, [sessionRunning]);
 
   useEffect(() => {
-    if (passwordChangeRequired) {
+    if (passwordChangeRequired || showInquiryModal) {
       return;
     }
 
@@ -229,17 +230,17 @@ export default function CalendarScreen() {
     }, 3000);
 
     return () => clearInterval(interval);
-  }, [loadSettlements, passwordChangeRequired]);
+  }, [loadSettlements, passwordChangeRequired, showInquiryModal]);
 
   useEffect(() => {
     const subscription = AppState.addEventListener("change", (state) => {
-      if (state === "active" && !passwordChangeRequired) {
+      if (state === "active" && !passwordChangeRequired && !showInquiryModal) {
         void loadSettlements({ silent: true });
       }
     });
 
     return () => subscription.remove();
-  }, [loadSettlements, passwordChangeRequired]);
+  }, [loadSettlements, passwordChangeRequired, showInquiryModal]);
 
   const updateInquiryBadge = (date: string, inquiryStatus: SettlementDay["inquiry_status"]) => {
     setSettlements((prev) => prev.map((item) => (item.date === date ? { ...item, inquiry_status: inquiryStatus } : item)));
@@ -493,9 +494,35 @@ function InquiryModal({
 }: {
   visible: boolean; loading: boolean; detail: SettlementInquiryDetailResponse | null; message: string; setMessage: (value: string) => void; submitting: boolean; onClose: () => void; onSubmit: () => void;
 }) {
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+
+  useEffect(() => {
+    if (Platform.OS !== "android") {
+      return;
+    }
+
+    const showSubscription = Keyboard.addListener("keyboardDidShow", (event) => {
+      setKeyboardHeight(event.endCoordinates.height);
+    });
+    const hideSubscription = Keyboard.addListener("keyboardDidHide", () => {
+      setKeyboardHeight(0);
+    });
+
+    return () => {
+      showSubscription.remove();
+      hideSubscription.remove();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!visible) {
+      setKeyboardHeight(0);
+    }
+  }, [visible]);
+
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <View style={styles.modalBackdrop}><KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.inquiryModalCenter}>
+      <View style={styles.modalBackdrop}><KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.flexFill}><View style={[styles.inquiryModalCenter, Platform.OS === "android" && keyboardHeight > 0 ? { paddingBottom: keyboardHeight + 12 } : null]}>
         <View style={[styles.modalCard, styles.inquiryCard]}>
         {loading || !detail ? <View style={styles.loadingCenter}><ActivityIndicator size="large" color={colors.accentBlue} /></View> : <>
           <View style={styles.inquiryHeader}><Text style={styles.modalTitle}>정산 문의</Text><TouchableOpacity onPress={onClose} hitSlop={HIT_SLOP}><Ionicons name="close" size={22} color={colors.textSecondary} /></TouchableOpacity></View>
@@ -513,7 +540,7 @@ function InquiryModal({
             <TouchableOpacity style={[styles.modalButton, styles.inquirySubmitButton, submitting && styles.buttonDisabled]} onPress={onSubmit} disabled={submitting}>{submitting ? <ActivityIndicator color={colors.textInverse} /> : <Text style={styles.modalButtonText}>등록</Text>}</TouchableOpacity>
           </View>
         </>}
-      </View></KeyboardAvoidingView></View>
+      </View></View></KeyboardAvoidingView></View>
     </Modal>
   );
 }
@@ -609,6 +636,7 @@ const styles = StyleSheet.create({
   lockedOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: colors.bgPrimary },
   buttonDisabled: { opacity: 0.7 },
   modalBackdrop: { flex: 1, backgroundColor: "rgba(15, 23, 42, 0.55)" },
+  flexFill: { flex: 1 },
   modalCenter: { flex: 1, justifyContent: "center", paddingHorizontal: 24, paddingVertical: 20 },
   inquiryModalCenter: { flex: 1, justifyContent: "flex-end", paddingHorizontal: 16, paddingVertical: 12 },
   modalCard: { borderRadius: 8, backgroundColor: colors.bgPrimary, padding: 20, gap: 16 },
