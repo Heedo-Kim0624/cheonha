@@ -44,8 +44,7 @@
               @click="openDetail(iq)">
               <td class="px-5 py-4">
                 <span v-if="needsReply(iq)" class="px-2 py-0.5 bg-red-100 text-red-700 rounded font-medium">답변필요</span>
-                <span v-else-if="iq.status === 'READ'" class="px-2 py-0.5 bg-gray-100 text-gray-600 rounded font-medium">읽음</span>
-                <span v-else class="px-2 py-0.5 bg-green-100 text-green-700 rounded font-medium">답변완료</span>
+                <span v-else class="px-2 py-0.5 bg-green-100 text-green-700 rounded font-medium">완료</span>
               </td>
               <td class="px-5 py-4 text-gray-500">{{ formatDateTime(iq.created_at) }}</td>
               <td class="px-5 py-4 font-bold text-text">{{ iq.crew_name }}</td>
@@ -63,7 +62,7 @@
       <!-- 상세 모달 -->
       <div v-if="selected" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
         @click.self="closeDetail">
-        <div class="bg-white rounded-xl w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
+        <div class="bg-white rounded-xl w-full max-w-6xl max-h-[95vh] overflow-hidden flex flex-col">
           <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
             <div>
               <h3 class="text-xl font-bold text-text">{{ selected.crew_name }} ({{ selected.team_name }})</h3>
@@ -72,47 +71,45 @@
             <button @click="closeDetail" class="text-gray-400 hover:text-gray-600 text-2xl">×</button>
           </div>
 
-          <div class="p-6 overflow-y-auto flex-1 space-y-5">
+          <div class="p-8 overflow-y-auto flex-1 space-y-6">
             <!-- 수정 필드들 -->
-            <div class="grid grid-cols-5 gap-3">
-              <div class="p-3 bg-blue-50 rounded-lg">
-                <label class="text-xs text-blue-600 mb-1 block">박스수</label>
+            <div class="grid grid-cols-5 gap-4">
+              <div class="p-5 bg-blue-50 rounded-xl">
+                <label class="block text-base text-blue-600 font-medium mb-2 whitespace-nowrap">박스수</label>
                 <input v-model.number="form.boxes" type="number" min="0"
-                  class="w-full px-2 py-1 bg-white rounded text-right font-bold" />
+                  class="w-full px-3 py-2 bg-white rounded-lg text-right text-lg font-bold" />
               </div>
-              <div class="p-3 bg-orange-50 rounded-lg">
-                <label class="text-xs text-orange-600 mb-1 block">지급단가</label>
+              <div class="p-5 bg-orange-50 rounded-xl">
+                <label class="block text-base text-orange-600 font-medium mb-2 whitespace-nowrap">지급단가</label>
                 <input v-model.number="form.pay_price" type="number" min="0"
-                  class="w-full px-2 py-1 bg-white rounded text-right font-bold" />
+                  class="w-full px-3 py-2 bg-white rounded-lg text-right text-lg font-bold" />
               </div>
-              <div class="p-3 bg-amber-50 rounded-lg">
-                <label class="text-xs text-amber-600 mb-1 block">특근</label>
-                <div class="flex items-center mt-1">
-                  <input v-model="form.is_overtime" type="checkbox" class="w-5 h-5 rounded" />
-                  <span class="ml-2 font-bold">{{ form.is_overtime ? '예' : '아니오' }}</span>
-                </div>
-              </div>
-              <div class="p-3 bg-purple-50 rounded-lg">
-                <label class="text-xs text-purple-600 mb-1 block">조정금액 (-가능)</label>
+              <div class="p-5 bg-purple-50 rounded-xl">
+                <label class="block text-base text-purple-600 font-medium mb-2 whitespace-nowrap">조정금액</label>
                 <input v-model.number="form.adjustment_amount" type="number"
-                  class="w-full px-2 py-1 bg-white rounded text-right font-bold" />
+                  class="w-full px-3 py-2 bg-white rounded-lg text-right text-lg font-bold" />
               </div>
-              <div class="p-3 bg-green-50 rounded-lg">
-                <label class="text-xs text-green-600 mb-1 block">정산금액 (자동)</label>
-                <div class="w-full px-2 py-1 bg-white rounded text-right font-bold text-green-800">
+              <div class="p-5 bg-rose-50 rounded-xl">
+                <label class="block text-base text-rose-600 font-medium mb-2 whitespace-nowrap">기타지출</label>
+                <input v-model.number="form.other_cost" type="number" min="0"
+                  class="w-full px-3 py-2 bg-white rounded-lg text-right text-lg font-bold" />
+              </div>
+              <div class="p-5 bg-green-50 rounded-xl">
+                <label class="block text-base text-green-600 font-medium mb-2 whitespace-nowrap">정산금액</label>
+                <div class="w-full px-3 py-2 bg-white rounded-lg text-right text-lg font-bold text-green-800">
                   {{ computedTotal.toLocaleString() }}원
                 </div>
               </div>
             </div>
             <div class="flex justify-end">
               <button @click="saveInquiry"
-                class="px-5 py-2 bg-primary text-white rounded-lg font-medium hover:opacity-90">저장</button>
+                class="px-6 py-3 bg-primary text-white rounded-lg text-lg font-medium hover:opacity-90">저장</button>
             </div>
 
             <!-- 대화 -->
             <div class="border-t border-gray-200 pt-5">
               <h4 class="font-bold text-text mb-3">대화</h4>
-              <div class="space-y-3 max-h-80 overflow-y-auto bg-gray-50 p-4 rounded-lg">
+              <div class="space-y-3 max-h-[400px] overflow-y-auto bg-gray-50 p-5 rounded-lg">
                 <div v-for="m in selected.messages" :key="m.id"
                   class="flex" :class="m.author_type === 'admin' ? 'justify-end' : 'justify-start'">
                   <div class="max-w-[70%]">
@@ -161,7 +158,7 @@ const counts = ref({ total: 0, open: 0 })
 const loading = ref(false)
 const selected = ref(null)
 const newMessage = ref('')
-const form = reactive({ boxes: 0, pay_price: 0, is_overtime: false, adjustment_amount: 0 })
+const form = reactive({ boxes: 0, pay_price: 0, is_overtime: false, adjustment_amount: 0, other_cost: 0 })
 
 const statusFilters = [
   { key: 'all', label: '전체' },
@@ -206,6 +203,7 @@ const openDetail = async (iq) => {
     form.pay_price = Number(r.data.pay_price || 0)
     form.is_overtime = !!r.data.is_overtime
     form.adjustment_amount = Number(r.data.adjustment_amount || 0)
+    form.other_cost = Number(r.data.other_cost || 0)
   } catch (e) { alert('조회 실패') }
 }
 
@@ -216,6 +214,7 @@ const saveInquiry = async () => {
     const resp = await updateInquiry(selected.value.id, {
       boxes: form.boxes, pay_price: form.pay_price,
       is_overtime: form.is_overtime, adjustment_amount: form.adjustment_amount,
+      other_cost: form.other_cost,
     })
     const { pay_price_changed, crew_member_id } = resp.data
 

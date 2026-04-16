@@ -15,7 +15,7 @@ class SettlementDetailSerializer(serializers.ModelSerializer):
             'id', 'dispatch_upload', 'upload_filename', 'upload_time', 'dispatch_date',
             'crew_member', 'crew_member_code', 'crew_member_name',
             'region', 'delivery_type', 'boxes', 'receive_amount', 'pay_amount',
-            'overtime_cost', 'profit', 'created_at', 'updated_at'
+            'overtime_cost', 'other_cost', 'profit', 'created_at', 'updated_at'
         ]
         read_only_fields = ['created_at', 'updated_at']
 
@@ -29,7 +29,7 @@ class SettlementSerializer(serializers.ModelSerializer):
         model = Settlement
         fields = [
             'id', 'period_start', 'period_end', 'team', 'team_name',
-            'status', 'total_receive', 'total_pay', 'total_overtime', 'total_profit',
+            'status', 'total_receive', 'total_pay', 'total_overtime', 'total_other_cost', 'total_profit',
             'confirmed_by', 'confirmed_by_name', 'confirmed_at', 'note',
             'details', 'created_at', 'updated_at'
         ]

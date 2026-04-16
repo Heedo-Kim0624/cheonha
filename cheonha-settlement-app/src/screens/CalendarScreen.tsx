@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -52,6 +52,12 @@ interface CalendarCell {
   amount?: number;
   adjustmentAmount?: number;
   inquiryStatus?: SettlementDay["inquiry_status"];
+}
+
+interface InquirySummary {
+  boxCount: number;
+  adjustmentAmount: number;
+  amount: number;
 }
 
 export default function CalendarScreen() {
@@ -318,6 +324,13 @@ export default function CalendarScreen() {
   };
 
   const openInquiry = async (date: string) => {
+    const currentDay = settlements.find((item) => item.date === date);
+    const clearAnsweredBadge = currentDay?.inquiry_status === "answered";
+
+    if (clearAnsweredBadge) {
+      updateInquiryBadge(date, null);
+    }
+
     setInquiryLoading(true);
     setShowInquiryModal(true);
     setInquiryMessage("");
@@ -325,6 +338,9 @@ export default function CalendarScreen() {
     const { data, error } = await api.getSettlementInquiry(date);
     setInquiryLoading(false);
     if (error || !data) {
+      if (clearAnsweredBadge) {
+        updateInquiryBadge(date, "answered");
+      }
       setShowInquiryModal(false);
       Alert.alert("오류", error || "문의 정보를 불러올 수 없습니다.");
       return;
@@ -387,6 +403,22 @@ export default function CalendarScreen() {
   };
 
   const calendarWeeks = useMemo(() => buildCalendarWeeks(year, month, settlements), [year, month, settlements]);
+  const selectedInquirySummary = useMemo<InquirySummary | null>(() => {
+    if (!selectedInquiry) {
+      return null;
+    }
+
+    const currentDay = settlements.find((item) => item.date === selectedInquiry.date);
+    if (!currentDay) {
+      return null;
+    }
+
+    return {
+      boxCount: currentDay.box_count,
+      adjustmentAmount: currentDay.adjustment_amount ?? 0,
+      amount: currentDay.amount,
+    };
+  }, [selectedInquiry, settlements]);
   const today = new Date();
   const isCurrentMonth = today.getFullYear() === year && today.getMonth() + 1 === month;
 
@@ -454,7 +486,7 @@ export default function CalendarScreen() {
 
       {passwordChangeRequired ? <View style={styles.lockedOverlay} /> : null}
 
-      <InquiryModal visible={showInquiryModal} loading={inquiryLoading} detail={selectedInquiry} message={inquiryMessage} setMessage={setInquiryMessage} submitting={inquirySubmitting} onClose={() => { if (!inquirySubmitting) { setShowInquiryModal(false); setSelectedInquiry(null); setInquiryMessage(""); void loadSettlements({ silent: true }); } }} onSubmit={handleSubmitInquiry} />
+      <InquiryModal visible={showInquiryModal} loading={inquiryLoading} detail={selectedInquiry} summary={selectedInquirySummary} message={inquiryMessage} setMessage={setInquiryMessage} submitting={inquirySubmitting} onClose={() => { if (!inquirySubmitting) { setShowInquiryModal(false); setSelectedInquiry(null); setInquiryMessage(""); void loadSettlements({ silent: true }); } }} onSubmit={handleSubmitInquiry} />
 
       <Modal visible={showPasswordModal} transparent animationType="fade" onRequestClose={() => (!passwordSaving && !passwordChangeRequired ? setShowPasswordModal(false) : null)}>
         <View style={styles.modalBackdrop}><KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.modalCenter}><View style={styles.modalCard}>
@@ -490,11 +522,17 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 
 function InquiryModal({
-  visible, loading, detail, message, setMessage, submitting, onClose, onSubmit,
+  visible, loading, detail, summary, message, setMessage, submitting, onClose, onSubmit,
 }: {
-  visible: boolean; loading: boolean; detail: SettlementInquiryDetailResponse | null; message: string; setMessage: (value: string) => void; submitting: boolean; onClose: () => void; onSubmit: () => void;
+  visible: boolean; loading: boolean; detail: SettlementInquiryDetailResponse | null; summary: InquirySummary | null; message: string; setMessage: (value: string) => void; submitting: boolean; onClose: () => void; onSubmit: () => void;
 }) {
   const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const messageScrollRef = useRef<ScrollView | null>(null);
+  const displaySummary = summary ?? (detail ? {
+    boxCount: detail.box_count,
+    adjustmentAmount: detail.adjustment_amount,
+    amount: detail.amount,
+  } : null);
 
   useEffect(() => {
     if (Platform.OS !== "android") {
@@ -520,6 +558,16 @@ function InquiryModal({
     }
   }, [visible]);
 
+  useEffect(() => {
+    if (!visible || !detail) {
+      return;
+    }
+
+    requestAnimationFrame(() => {
+      messageScrollRef.current?.scrollToEnd({ animated: false });
+    });
+  }, [detail, visible]);
+
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.modalBackdrop}><KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.flexFill}><View style={[styles.inquiryModalCenter, Platform.OS === "android" && keyboardHeight > 0 ? { paddingBottom: keyboardHeight + 12 } : null]}>
@@ -528,11 +576,11 @@ function InquiryModal({
           <View style={styles.inquiryHeader}><Text style={styles.modalTitle}>정산 문의</Text><TouchableOpacity onPress={onClose} hitSlop={HIT_SLOP}><Ionicons name="close" size={22} color={colors.textSecondary} /></TouchableOpacity></View>
           <View style={styles.inquirySummaryRow}>
             <SummaryChip label="날짜" value={formatDateLabel(detail.date)} />
-            <SummaryChip label="박스수" value={`${detail.box_count}개`} />
-            {detail.adjustment_amount !== 0 ? <SummaryChip label="조정비용" value={`${detail.adjustment_amount.toLocaleString()}원`} /> : null}
-            <SummaryChip label="정산금액" value={`${detail.amount.toLocaleString()}원`} />
+            <SummaryChip label="박스수" value={`${displaySummary?.boxCount ?? 0}개`} />
+            {(displaySummary?.adjustmentAmount ?? 0) !== 0 ? <SummaryChip label="조정비용" value={`${(displaySummary?.adjustmentAmount ?? 0).toLocaleString()}원`} /> : null}
+            <SummaryChip label="정산금액" value={`${(displaySummary?.amount ?? 0).toLocaleString()}원`} />
           </View>
-          <ScrollView style={styles.messageScroll} contentContainerStyle={styles.messageList} keyboardShouldPersistTaps="handled">
+          <ScrollView ref={messageScrollRef} style={styles.messageScroll} contentContainerStyle={styles.messageList} keyboardShouldPersistTaps="handled" onContentSizeChange={() => messageScrollRef.current?.scrollToEnd({ animated: false })}>
             {detail.messages.length === 0 ? <View style={styles.emptyMessageBox}><Text style={styles.emptyMessageText}>박스수나 정산금액이 이상하면 아래에 내용을 남겨 주세요.</Text></View> : detail.messages.map((item) => <MessageBubble key={item.id} message={item} />)}
           </ScrollView>
           <View style={styles.inquiryComposer}>

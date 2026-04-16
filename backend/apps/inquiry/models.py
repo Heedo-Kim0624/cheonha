@@ -38,6 +38,10 @@ class SettlementInquiry(models.Model):
         '조정금액', max_digits=12, decimal_places=0, default=0,
         help_text='음수 가능'
     )
+    other_cost = models.DecimalField(
+        '기타 지출', max_digits=12, decimal_places=0, default=0,
+        help_text='회사 비용, 수익에서만 차감'
+    )
     total_amount = models.DecimalField('정산금액', max_digits=12, decimal_places=0, default=0)
 
     # 상태

@@ -186,7 +186,7 @@ class TeamViewSet(viewsets.ModelViewSet):
             new_pay = crew_pay * Decimal(str(d.boxes))
             d.receive_amount = new_receive
             d.pay_amount = new_pay
-            d.profit = new_receive - new_pay - d.overtime_cost
+            d.profit = new_receive - new_pay - d.overtime_cost - d.other_cost
             d.save(update_fields=['receive_amount', 'pay_amount', 'profit'])
             settlement_ids.add(d.settlement_id)
             updated += 1

@@ -40,7 +40,14 @@ class Settlement(AuditMixin):
         help_text='원 단위'
     )
     total_overtime = models.DecimalField(
-        '총 연장근무료',
+        '총 조정비용',
+        max_digits=12,
+        decimal_places=0,
+        default=0,
+        help_text='원 단위'
+    )
+    total_other_cost = models.DecimalField(
+        '총 기타 지출',
         max_digits=12,
         decimal_places=0,
         default=0,
@@ -122,18 +129,25 @@ class SettlementDetail(AuditMixin):
         help_text='원 단위'
     )
     overtime_cost = models.DecimalField(
-        '연장근무료',
+        '조정비용',
         max_digits=12,
         decimal_places=0,
         default=0,
-        help_text='원 단위'
+        help_text='원 단위 (특근비/조정금액, 음수 가능)'
+    )
+    other_cost = models.DecimalField(
+        '기타 지출',
+        max_digits=12,
+        decimal_places=0,
+        default=0,
+        help_text='원 단위 (사고 등으로 발생한 지출, 수익에서만 차감)'
     )
     profit = models.DecimalField(
         '이윤',
         max_digits=12,
         decimal_places=0,
         default=0,
-        help_text='원 단위 (수신액 - 지급액 - 연장근무료)'
+        help_text='원 단위 (수신액 - 지급액 - 조정비용 - 기타 지출)'
     )
 
     class Meta:

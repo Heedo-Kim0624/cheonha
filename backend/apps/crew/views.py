@@ -91,7 +91,7 @@ class CrewMemberViewSet(BaseViewSet):
             new_receive = Decimal(str(receive_price)) * Decimal(str(d.boxes))
             d.pay_amount = new_pay
             d.receive_amount = new_receive
-            d.profit = new_receive - new_pay - d.overtime_cost
+            d.profit = new_receive - new_pay - d.overtime_cost - d.other_cost
             d.save(update_fields=['pay_amount', 'receive_amount', 'profit'])
             settlement_ids.add(d.settlement_id)
             updated += 1

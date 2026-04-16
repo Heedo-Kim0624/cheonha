@@ -19,7 +19,7 @@ class SettlementInquirySerializer(serializers.ModelSerializer):
             'id', 'crew_member', 'crew_member_name', 'crew_name',
             'team', 'team_name', 'dispatch_date',
             'original_boxes', 'original_pay_price', 'original_adjustment', 'original_total',
-            'boxes', 'pay_price', 'is_overtime', 'adjustment_amount', 'total_amount',
+            'boxes', 'pay_price', 'is_overtime', 'adjustment_amount', 'other_cost', 'total_amount',
             'status', 'last_by',
             'messages', 'created_at', 'updated_at',
         ]

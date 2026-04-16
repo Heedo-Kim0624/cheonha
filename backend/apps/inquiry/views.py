@@ -10,7 +10,6 @@ from .serializers import SettlementInquirySerializer, InquiryMessageSerializer
 
 from apps.crew.models import CrewMember
 from apps.settlement.models import Settlement, SettlementDetail
-from apps.dispatch.models import DispatchRecord
 
 
 class SettlementInquiryViewSet(viewsets.ModelViewSet):
@@ -65,6 +64,8 @@ class SettlementInquiryViewSet(viewsets.ModelViewSet):
 
         old_pay_price = inquiry.pay_price
         old_boxes = inquiry.boxes
+        old_adjustment = inquiry.adjustment_amount
+        old_other_cost = inquiry.other_cost
 
         if 'boxes' in data:
             inquiry.boxes = int(data['boxes'])
@@ -74,14 +75,19 @@ class SettlementInquiryViewSet(viewsets.ModelViewSet):
             inquiry.is_overtime = bool(data['is_overtime'])
         if 'adjustment_amount' in data:
             inquiry.adjustment_amount = Decimal(str(data['adjustment_amount']))
+        if 'other_cost' in data:
+            inquiry.other_cost = Decimal(str(data['other_cost']))
 
-        # 자동 합산
+        # 자동 합산: 박스 * 지급단가 + 조정금액 (기타지출은 배송원 지급에서 차감하지 않음)
         inquiry.total_amount = (
             inquiry.pay_price * Decimal(str(inquiry.boxes)) + inquiry.adjustment_amount
         )
 
         pay_price_changed = inquiry.pay_price != old_pay_price
         boxes_changed = inquiry.boxes != old_boxes
+        adjustment_changed = inquiry.adjustment_amount != old_adjustment
+        other_cost_changed = inquiry.other_cost != old_other_cost
+        any_changed = boxes_changed or pay_price_changed or adjustment_changed or other_cost_changed
 
         with transaction.atomic():
             inquiry.save()
@@ -91,24 +97,8 @@ class SettlementInquiryViewSet(viewsets.ModelViewSet):
                 inquiry.crew_member.pay_price = inquiry.pay_price
                 inquiry.crew_member.save(update_fields=['pay_price'])
 
-            # 2. 해당 날짜 정산/배차에 박스수 + 지급단가 반영
-            if (boxes_changed or pay_price_changed) and inquiry.crew_member:
-                # 해당 배송원의 해당 날짜 배차 레코드 업데이트
-                dispatch_recs = DispatchRecord.objects.filter(
-                    manager_name=inquiry.crew_name,
-                    upload__dispatch_date=inquiry.dispatch_date,
-                    upload__team=inquiry.team,
-                )
-                if boxes_changed and dispatch_recs.exists():
-                    # 단순화: 첫 레코드에 박스수 할당 (복수 레코드면 균등 분배)
-                    count = dispatch_recs.count()
-                    per = inquiry.boxes // count
-                    rem = inquiry.boxes % count
-                    for i, rec in enumerate(dispatch_recs.order_by('id')):
-                        rec.boxes = per + (1 if i < rem else 0)
-                        rec.save(update_fields=['boxes'])
-
-                # 해당 날짜 정산 detail 업데이트
+            # 2. 해당 날짜 정산 detail 업데이트 (운영현황/대시보드는 정산 기반이므로 여기서 전파됨)
+            if any_changed and inquiry.crew_member:
                 details = SettlementDetail.objects.filter(
                     crew_member=inquiry.crew_member,
                     settlement__period_start=inquiry.dispatch_date,
@@ -125,13 +115,16 @@ class SettlementInquiryViewSet(viewsets.ModelViewSet):
                         d.boxes = new_boxes
                         d.receive_amount = receive_price * Decimal(str(new_boxes))
                         d.pay_amount = inquiry.pay_price * Decimal(str(new_boxes))
-                        # 조정금액은 첫 번째 detail에 귀속
+                        # 조정금액/기타지출은 첫 번째 detail에 귀속
                         if i == 0:
                             d.overtime_cost = inquiry.adjustment_amount
+                            d.other_cost = inquiry.other_cost
                         else:
                             d.overtime_cost = Decimal('0')
-                        d.profit = d.receive_amount - d.pay_amount - d.overtime_cost
-                        d.save(update_fields=['boxes', 'receive_amount', 'pay_amount', 'overtime_cost', 'profit'])
+                            d.other_cost = Decimal('0')
+                        # profit = 수신 - 지급 - 조정비용 - 기타지출
+                        d.profit = d.receive_amount - d.pay_amount - d.overtime_cost - d.other_cost
+                        d.save(update_fields=['boxes', 'receive_amount', 'pay_amount', 'overtime_cost', 'other_cost', 'profit'])
                         settlement_ids.add(d.settlement_id)
 
                 # 정산 합계 재계산
@@ -140,11 +133,12 @@ class SettlementInquiryViewSet(viewsets.ModelViewSet):
                         s = Settlement.objects.get(id=sid)
                         agg = s.details.aggregate(
                             r=Sum('receive_amount'), p=Sum('pay_amount'),
-                            o=Sum('overtime_cost'), pr=Sum('profit')
+                            o=Sum('overtime_cost'), oc=Sum('other_cost'), pr=Sum('profit')
                         )
                         s.total_receive = agg['r'] or 0
                         s.total_pay = agg['p'] or 0
                         s.total_overtime = agg['o'] or 0
+                        s.total_other_cost = agg['oc'] or 0
                         s.total_profit = agg['pr'] or 0
                         s.save()
                     except Settlement.DoesNotExist:

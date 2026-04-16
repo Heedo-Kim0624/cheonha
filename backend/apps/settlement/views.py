@@ -261,10 +261,12 @@ class SettlementViewSet(viewsets.ModelViewSet):
         total_receive = details.aggregate(Sum('receive_amount'))['receive_amount__sum'] or 0
         total_pay = details.aggregate(Sum('pay_amount'))['pay_amount__sum'] or 0
         total_overtime = details.aggregate(Sum('overtime_cost'))['overtime_cost__sum'] or 0
+        total_other = details.aggregate(Sum('other_cost'))['other_cost__sum'] or 0
         settlement.total_receive = total_receive
         settlement.total_pay = total_pay
         settlement.total_overtime = total_overtime
-        settlement.total_profit = total_receive - total_pay - total_overtime
+        settlement.total_other_cost = total_other
+        settlement.total_profit = total_receive - total_pay - total_overtime - total_other
         settlement.save()
         serializer = SettlementSerializer(settlement)
         return Response(serializer.data)
@@ -367,7 +369,8 @@ class SettlementDetailViewSet(viewsets.ModelViewSet):
         profit = (
             serializer.validated_data.get('receive_amount', 0) -
             serializer.validated_data.get('pay_amount', 0) -
-            serializer.validated_data.get('overtime_cost', 0)
+            serializer.validated_data.get('overtime_cost', 0) -
+            serializer.validated_data.get('other_cost', 0)
         )
         serializer.validated_data['profit'] = profit
         self.perform_create(serializer)
@@ -378,10 +381,25 @@ class SettlementDetailViewSet(viewsets.ModelViewSet):
         serializer.save(created_by=self.request.user)
 
     def perform_update(self, serializer):
+        from decimal import Decimal
+        obj = self.get_object()
+        new_boxes = serializer.validated_data.get('boxes', obj.boxes)
+
+        # 박스수 변경 시 pay/receive 자동 재계산 (단가 유지)
+        if new_boxes != obj.boxes and 'receive_amount' not in serializer.validated_data:
+            team = obj.settlement.team if obj.settlement else None
+            receive_price = team.receive_price if team else Decimal('0')
+            serializer.validated_data['receive_amount'] = receive_price * Decimal(str(new_boxes))
+        if new_boxes != obj.boxes and 'pay_amount' not in serializer.validated_data:
+            crew = obj.crew_member
+            pay_price = crew.pay_price if crew else Decimal('0')
+            serializer.validated_data['pay_amount'] = pay_price * Decimal(str(new_boxes))
+
         profit = (
-            serializer.validated_data.get('receive_amount', self.get_object().receive_amount) -
-            serializer.validated_data.get('pay_amount', self.get_object().pay_amount) -
-            serializer.validated_data.get('overtime_cost', self.get_object().overtime_cost)
+            serializer.validated_data.get('receive_amount', obj.receive_amount) -
+            serializer.validated_data.get('pay_amount', obj.pay_amount) -
+            serializer.validated_data.get('overtime_cost', obj.overtime_cost) -
+            serializer.validated_data.get('other_cost', obj.other_cost)
         )
         serializer.validated_data['profit'] = profit
         serializer.save(updated_by=self.request.user)
