@@ -30,6 +30,16 @@ async function getRefreshToken(): Promise<string | null> {
   try { return await SecureStore.getItemAsync("refreshToken"); } catch { return null; }
 }
 
+function normalizeIdentityPart(value: string): string {
+  return value.trim().toUpperCase().replace(/\s+/g, "_");
+}
+
+function getInquirySeenKey(name: string, teamCode: string, date: string): string {
+  return `inquirySeen.${normalizeIdentityPart(teamCode)}.${normalizeIdentityPart(
+    name
+  )}.${date}`;
+}
+
 export async function saveTokens(access: string, refresh: string) {
   await SecureStore.setItemAsync("accessToken", access);
   await SecureStore.setItemAsync("refreshToken", refresh);
@@ -39,6 +49,38 @@ export async function clearTokens() {
   try {
     await SecureStore.deleteItemAsync("accessToken");
     await SecureStore.deleteItemAsync("refreshToken");
+  } catch {}
+}
+
+export async function getInquirySeenVersion(
+  name: string,
+  teamCode: string,
+  date: string
+): Promise<string | null> {
+  if (!name.trim() || !teamCode.trim() || !date.trim()) {
+    return null;
+  }
+  try {
+    return await SecureStore.getItemAsync(getInquirySeenKey(name, teamCode, date));
+  } catch {
+    return null;
+  }
+}
+
+export async function saveInquirySeenVersion(
+  name: string,
+  teamCode: string,
+  date: string,
+  updatedAt: string
+): Promise<void> {
+  if (!name.trim() || !teamCode.trim() || !date.trim() || !updatedAt.trim()) {
+    return;
+  }
+  try {
+    await SecureStore.setItemAsync(
+      getInquirySeenKey(name, teamCode, date),
+      updatedAt
+    );
   } catch {}
 }
 
@@ -123,9 +165,43 @@ async function refreshAccessToken(): Promise<string | null> {
 
 export interface LoginResponse { access: string; refresh: string; crew_member_id: number; name: string; team_code: string; requires_password_change: boolean; }
 export interface ProfileResponse { name: string; team_code: string; team_name: string; requires_password_change: boolean; }
-export interface SettlementDay { date: string; box_count: number; amount: number; }
+export type InquiryBadgeStatus = "pending" | "answered" | null;
+export interface SettlementDay {
+  date: string;
+  box_count: number;
+  adjustment_amount?: number;
+  amount: number;
+  inquiry_updated_at?: string | null;
+  inquiry_status?: InquiryBadgeStatus;
+}
 export interface SettlementsResponse { days: SettlementDay[]; total_boxes: number; total_amount: number; }
 export interface PasswordChangeResponse { detail: string; }
+export interface SettlementInquiryMessage {
+  id: number;
+  author_type: "crew" | "admin";
+  author_name: string;
+  content: string;
+  created_at: string;
+}
+export interface SettlementInquiryDetailResponse {
+  inquiry_id: number | null;
+  date: string;
+  box_count: number;
+  pay_price: number;
+  adjustment_amount: number;
+  amount: number;
+  is_overtime: boolean;
+  status: "OPEN" | "ANSWERED" | "READ" | null;
+  last_by: "crew" | "admin" | null;
+  badge_status: InquiryBadgeStatus;
+  updated_at: string | null;
+  messages: SettlementInquiryMessage[];
+}
+export interface SettlementInquiryReadResponse {
+  id: number;
+  status: "OPEN" | "ANSWERED" | "READ";
+  badge_status: InquiryBadgeStatus;
+}
 
 export const api = {
   login(name: string, teamCode: string, password: string) {
@@ -142,6 +218,34 @@ export const api = {
   getProfile() { return request<ProfileResponse>("/api/v1/mobile/profile/"); },
   getSettlements(month: string) {
     return request<SettlementsResponse>(`/api/v1/mobile/settlements/?month=${month}`);
+  },
+  getSettlementInquiry(date: string) {
+    return request<SettlementInquiryDetailResponse>(
+      `/api/v1/mobile/settlement-inquiry/?date=${date}`
+    );
+  },
+  commentSettlementInquiry(date: string, content: string) {
+    return request<SettlementInquiryDetailResponse>(
+      "/api/v1/mobile/settlement-inquiry/comment/",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          date,
+          content,
+        }),
+      }
+    );
+  },
+  markSettlementInquiryRead(inquiryId: number) {
+    return request<SettlementInquiryReadResponse>(
+      "/api/v1/mobile/settlement-inquiry/read/",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          inquiry_id: inquiryId,
+        }),
+      }
+    );
   },
   changePassword(password: string, passwordConfirm: string) {
     return request<PasswordChangeResponse>("/api/v1/mobile/password/", {

@@ -70,6 +70,7 @@ const allNavItems = [
   { path: '/crew', label: '배송원 관리', desc: '매니저 등록', icon: IconCrew, admin: false },
   { path: '/operations', label: '운영 현황', desc: '날짜별 현황', icon: IconDispatch, admin: false },
   { path: '/settlement', label: '정산 처리', desc: '정산 관리', icon: IconSettlement, admin: true },
+  { path: '/inquiry', label: '정산 문의', desc: '문의/대화', icon: IconSettlement, admin: true },
   { path: '/region', label: '팀 관리', desc: '단가 설정', icon: IconRegion, admin: true },
 ]
 
@@ -79,7 +80,7 @@ const visibleNavItems = computed(() => {
 })
 
 const pageTitle = computed(() => {
-  const titles = { '/': '대시보드', '/dispatch': '배차 데이터', '/crew': '배송원 관리', '/operations': '운영 현황', '/settlement': '정산 처리', '/region': '팀 관리' }
+  const titles = { '/': '대시보드', '/dispatch': '배차 데이터', '/crew': '배송원 관리', '/operations': '운영 현황', '/settlement': '정산 처리', '/inquiry': '정산 문의', '/region': '팀 관리' }
   return titles[route.path] || '천하운수'
 })
 

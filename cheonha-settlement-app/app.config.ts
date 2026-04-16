@@ -11,7 +11,7 @@ const config = ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
   name: appName,
   slug: "cheonha-settlement-app",
-  version: "1.0.6",
+  version: "1.0.8",
   orientation: "portrait",
   icon: "./assets/icon.png",
   userInterfaceStyle: "light",

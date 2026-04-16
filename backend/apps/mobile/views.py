@@ -1,4 +1,5 @@
-from datetime import timedelta
+from datetime import date as date_cls, timedelta
+from decimal import Decimal, ROUND_HALF_UP
 
 from django.contrib.auth.hashers import check_password, make_password
 from django.db import transaction
@@ -13,12 +14,17 @@ from rest_framework_simplejwt.tokens import RefreshToken
 
 from apps.accounts.models import Team
 from apps.crew.models import CrewMember
+from apps.inquiry.models import InquiryMessage, SettlementInquiry
+from apps.inquiry.serializers import InquiryMessageSerializer
 from apps.settlement.models import Settlement, SettlementDetail
 
 from .models import MobileAppUser, MobilePassword
 from .serializers import (
     MobileApprovalActionSerializer,
     MobileAppUserSerializer,
+    MobileSettlementInquiryCommentSerializer,
+    MobileSettlementInquiryReadSerializer,
+    MobileSettlementInquiryRequestSerializer,
     MobileLoginSerializer,
     MobilePasswordChangeSerializer,
     MobileRegisterSerializer,
@@ -263,6 +269,108 @@ def _get_mobile_user_from_token(request):
     return crew, mobile_user
 
 
+def _get_inquiry_badge_status(inquiry):
+    if not inquiry:
+        return None
+    if inquiry.last_by == "crew" and inquiry.status == "OPEN":
+        return "pending"
+    if inquiry.status in {"ANSWERED", "READ"}:
+        return "answered"
+    return None
+
+
+def _quantize_whole(value):
+    return int(Decimal(value or 0).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+
+
+def _get_settlement_day_snapshot(crew, target_date):
+    details = SettlementDetail.objects.filter(
+        crew_member=crew,
+        settlement__status__in=["CONFIRMED", "PAID"],
+        dispatch_upload__dispatch_date=target_date,
+    )
+
+    aggregates = details.aggregate(
+        box_count=Coalesce(Sum("boxes"), Value(0)),
+        pay_total=Coalesce(
+            Sum("pay_amount"),
+            Value(0, output_field=DecimalField()),
+        ),
+        adjustment_amount=Coalesce(
+            Sum("overtime_cost"),
+            Value(0, output_field=DecimalField()),
+        ),
+    )
+
+    box_count = int(aggregates["box_count"] or 0)
+    pay_total = Decimal(aggregates["pay_total"] or 0)
+    adjustment_amount = Decimal(aggregates["adjustment_amount"] or 0)
+    total_amount = pay_total + adjustment_amount
+
+    if box_count <= 0 and total_amount <= 0:
+        return None
+
+    if box_count > 0:
+        pay_price = (pay_total / Decimal(box_count)).quantize(
+            Decimal("1"), rounding=ROUND_HALF_UP
+        )
+    else:
+        pay_price = Decimal("0")
+
+    return {
+        "dispatch_date": target_date,
+        "box_count": box_count,
+        "pay_price": pay_price,
+        "adjustment_amount": adjustment_amount,
+        "total_amount": total_amount,
+        "is_overtime": adjustment_amount != 0,
+    }
+
+
+def _build_mobile_inquiry_payload(inquiry, snapshot):
+    active_snapshot = snapshot or {}
+
+    if inquiry:
+        box_count = int(inquiry.boxes)
+        adjustment_amount = _quantize_whole(inquiry.adjustment_amount)
+        total_amount = _quantize_whole(inquiry.total_amount)
+        pay_price = _quantize_whole(inquiry.pay_price)
+        status = inquiry.status
+        inquiry_id = inquiry.id
+        last_by = inquiry.last_by
+        messages = InquiryMessageSerializer(inquiry.messages.all(), many=True).data
+        badge_status = _get_inquiry_badge_status(inquiry)
+        dispatch_date = inquiry.dispatch_date
+        updated_at = inquiry.updated_at.isoformat() if inquiry.updated_at else None
+    else:
+        box_count = int(active_snapshot.get("box_count") or 0)
+        adjustment_amount = _quantize_whole(active_snapshot.get("adjustment_amount"))
+        total_amount = _quantize_whole(active_snapshot.get("total_amount"))
+        pay_price = _quantize_whole(active_snapshot.get("pay_price"))
+        status = None
+        inquiry_id = None
+        last_by = None
+        messages = []
+        badge_status = None
+        dispatch_date = active_snapshot.get("dispatch_date")
+        updated_at = None
+
+    return {
+        "inquiry_id": inquiry_id,
+        "date": dispatch_date.isoformat() if hasattr(dispatch_date, "isoformat") else str(dispatch_date),
+        "box_count": box_count,
+        "pay_price": pay_price,
+        "adjustment_amount": adjustment_amount,
+        "amount": total_amount,
+        "is_overtime": bool(inquiry.is_overtime if inquiry else active_snapshot.get("is_overtime")),
+        "status": status,
+        "last_by": last_by,
+        "badge_status": badge_status,
+        "updated_at": updated_at,
+        "messages": messages,
+    }
+
+
 @api_view(["POST"])
 @authentication_classes([])
 @permission_classes([AllowAny])
@@ -360,10 +468,27 @@ def mobile_settlements(request):
         .values("dispatch_upload__dispatch_date")
         .annotate(
             box_count=Coalesce(Sum("boxes"), Value(0)),
-            amount=Coalesce(Sum("pay_amount"), Value(0, output_field=DecimalField())) + Coalesce(Sum("overtime_cost"), Value(0, output_field=DecimalField())),
+            adjustment_amount=Coalesce(
+                Sum("overtime_cost"),
+                Value(0, output_field=DecimalField()),
+            ),
+            amount=Coalesce(
+                Sum("pay_amount"),
+                Value(0, output_field=DecimalField()),
+            )
+            + Coalesce(Sum("overtime_cost"), Value(0, output_field=DecimalField())),
         )
         .order_by("dispatch_upload__dispatch_date")
     )
+
+    inquiry_map = {
+        inquiry.dispatch_date: inquiry
+        for inquiry in SettlementInquiry.objects.filter(
+            crew_member=crew,
+            dispatch_date__year=year,
+            dispatch_date__month=mon,
+        )
+    }
 
     days = []
     total_boxes = 0
@@ -371,12 +496,16 @@ def mobile_settlements(request):
 
     for d in details:
         date = d["dispatch_upload__dispatch_date"]
-        box_count = d["box_count"]
-        amount = d["amount"]
+        box_count = int(d["box_count"] or 0)
+        amount = _quantize_whole(d["amount"])
+        inquiry = inquiry_map.get(date)
         days.append({
             "date": date.isoformat() if hasattr(date, "isoformat") else str(date),
             "box_count": box_count,
+            "adjustment_amount": _quantize_whole(d["adjustment_amount"]),
             "amount": amount,
+            "inquiry_updated_at": inquiry.updated_at.isoformat() if inquiry and inquiry.updated_at else None,
+            "inquiry_status": _get_inquiry_badge_status(inquiry),
         })
         total_boxes += box_count
         total_amount += amount
@@ -386,6 +515,143 @@ def mobile_settlements(request):
         "total_boxes": total_boxes,
         "total_amount": total_amount,
     })
+
+
+@api_view(["GET"])
+@authentication_classes([])
+@permission_classes([AllowAny])
+def mobile_settlement_inquiry(request):
+    crew = _get_crew_from_token(request)
+    if not crew:
+        return Response(
+            {"detail": "세션이 만료되었습니다. 다시 로그인해 주세요."},
+            status=status.HTTP_401_UNAUTHORIZED,
+        )
+
+    serializer = MobileSettlementInquiryRequestSerializer(data=request.query_params)
+    serializer.is_valid(raise_exception=True)
+    target_date = serializer.validated_data["date"]
+
+    inquiry = (
+        SettlementInquiry.objects.filter(crew_member=crew, dispatch_date=target_date)
+        .prefetch_related("messages")
+        .first()
+    )
+    snapshot = _get_settlement_day_snapshot(crew, target_date)
+
+    if not inquiry and not snapshot:
+        return Response(
+            {"detail": "해당 날짜의 정산 정보가 없습니다."},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    return Response(_build_mobile_inquiry_payload(inquiry, snapshot))
+
+
+@api_view(["POST"])
+@authentication_classes([])
+@permission_classes([AllowAny])
+def mobile_settlement_inquiry_comment(request):
+    crew = _get_crew_from_token(request)
+    if not crew:
+        return Response(
+            {"detail": "세션이 만료되었습니다. 다시 로그인해 주세요."},
+            status=status.HTTP_401_UNAUTHORIZED,
+        )
+
+    serializer = MobileSettlementInquiryCommentSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+    target_date = serializer.validated_data["date"]
+    content = serializer.validated_data["content"]
+
+    snapshot = _get_settlement_day_snapshot(crew, target_date)
+    inquiry = (
+        SettlementInquiry.objects.filter(crew_member=crew, dispatch_date=target_date)
+        .prefetch_related("messages")
+        .first()
+    )
+
+    if not inquiry and not snapshot:
+        return Response(
+            {"detail": "해당 날짜의 정산 정보가 없습니다."},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    if not inquiry:
+        inquiry = SettlementInquiry.objects.create(
+            crew_member=crew,
+            crew_name=crew.name,
+            team=crew.team,
+            team_name=crew.team.name if crew.team else "",
+            dispatch_date=target_date,
+            original_boxes=snapshot["box_count"],
+            original_pay_price=snapshot["pay_price"],
+            original_adjustment=snapshot["adjustment_amount"],
+            original_total=snapshot["total_amount"],
+            boxes=snapshot["box_count"],
+            pay_price=snapshot["pay_price"],
+            is_overtime=snapshot["is_overtime"],
+            adjustment_amount=snapshot["adjustment_amount"],
+            total_amount=snapshot["total_amount"],
+            status="OPEN",
+            last_by="crew",
+        )
+        inquiry = SettlementInquiry.objects.prefetch_related("messages").get(pk=inquiry.pk)
+
+    InquiryMessage.objects.create(
+        inquiry=inquiry,
+        author_type="crew",
+        author_name=crew.name,
+        content=content,
+    )
+
+    inquiry.last_by = "crew"
+    inquiry.status = "OPEN"
+    inquiry.save(update_fields=["last_by", "status", "updated_at"])
+    inquiry.refresh_from_db()
+
+    return Response(
+        _build_mobile_inquiry_payload(inquiry, snapshot),
+        status=status.HTTP_201_CREATED,
+    )
+
+
+@api_view(["POST"])
+@authentication_classes([])
+@permission_classes([AllowAny])
+def mobile_settlement_inquiry_read(request):
+    crew = _get_crew_from_token(request)
+    if not crew:
+        return Response(
+            {"detail": "세션이 만료되었습니다. 다시 로그인해 주세요."},
+            status=status.HTTP_401_UNAUTHORIZED,
+        )
+
+    serializer = MobileSettlementInquiryReadSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+
+    try:
+        inquiry = SettlementInquiry.objects.get(
+            pk=serializer.validated_data["inquiry_id"],
+            crew_member=crew,
+        )
+    except SettlementInquiry.DoesNotExist:
+        return Response(
+            {"detail": "문의 내역을 찾을 수 없습니다."},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    if inquiry.last_by == "admin" and inquiry.status == "ANSWERED":
+        inquiry.status = "READ"
+        inquiry.save(update_fields=["status", "updated_at"])
+
+    return Response(
+        {
+            "id": inquiry.id,
+            "status": inquiry.status,
+            "badge_status": _get_inquiry_badge_status(inquiry),
+        }
+    )
 
 
 # =============================================================================

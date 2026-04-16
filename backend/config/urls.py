@@ -26,6 +26,9 @@ urlpatterns = [
 
     # Mobile API (기사용 모바일 앱)
     path('api/v1/mobile/', include('apps.mobile.urls')),
+
+    # 정산 문의
+    path('api/v1/inquiry/', include('apps.inquiry.urls')),
 ]
 
 if settings.DEBUG:

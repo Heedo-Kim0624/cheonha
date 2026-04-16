@@ -67,7 +67,17 @@ class MobileApprovalActionSerializer(serializers.Serializer):
 class SettlementDaySerializer(serializers.Serializer):
     date = serializers.DateField()
     box_count = serializers.IntegerField()
+    adjustment_amount = serializers.IntegerField(required=False, default=0)
     amount = serializers.IntegerField()
+    inquiry_updated_at = serializers.DateTimeField(
+        allow_null=True,
+        required=False,
+    )
+    inquiry_status = serializers.ChoiceField(
+        choices=["pending", "answered"],
+        allow_null=True,
+        required=False,
+    )
 
 
 class MonthlySettlementSerializer(serializers.Serializer):
@@ -80,3 +90,22 @@ class MobileProfileSerializer(serializers.Serializer):
     name = serializers.CharField()
     team_code = serializers.CharField()
     team_name = serializers.CharField()
+
+
+class MobileSettlementInquiryRequestSerializer(serializers.Serializer):
+    date = serializers.DateField()
+
+
+class MobileSettlementInquiryCommentSerializer(serializers.Serializer):
+    date = serializers.DateField()
+    content = serializers.CharField()
+
+    def validate_content(self, value):
+        value = str(value or "").strip()
+        if not value:
+            raise serializers.ValidationError("문의 내용을 입력해 주세요.")
+        return value
+
+
+class MobileSettlementInquiryReadSerializer(serializers.Serializer):
+    inquiry_id = serializers.IntegerField()

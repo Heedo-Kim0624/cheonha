@@ -39,6 +39,7 @@ INSTALLED_APPS = [
     'apps.dashboard.apps.DashboardConfig',
     'apps.common.apps.CommonConfig',
     'apps.mobile.apps.MobileConfig',
+    'apps.inquiry.apps.InquiryConfig',
 ]
 
 MIDDLEWARE = [
