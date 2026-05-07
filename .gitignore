@@ -57,6 +57,8 @@ e2e/
 # Misc
 *.xlsx
 *.html
+!docs/index.html
+!docs/privacy/index.html
 package-lock.json
 frontend/package-lock.json
 frontend/vite.config.js.timestamp-*
@@ -71,3 +73,5 @@ cheonha-settlement-app/credentials.json
 barometer-app/
 beacon-app/
 cameralog-main/
+_tmp_sigungu/
+_tmp_inspect.py
