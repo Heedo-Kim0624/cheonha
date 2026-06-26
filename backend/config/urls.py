@@ -29,6 +29,9 @@ urlpatterns = [
 
     # 정산 문의
     path('api/v1/inquiry/', include('apps.inquiry.urls')),
+
+    # Vehicle management API
+    path('api/v1/vehicle/', include('apps.vehicle_management.urls')),
 ]
 
 if settings.DEBUG:
