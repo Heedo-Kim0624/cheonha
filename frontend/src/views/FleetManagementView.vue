@@ -2,6 +2,10 @@
   <div class="fleet-page">
     <aside class="fleet-sidebar">
       <RouterLink to="/portal/operations" class="back-link">운영 통합관리로 돌아가기</RouterLink>
+      <div class="quick-links" aria-label="운영 바로가기">
+        <RouterLink to="/portal/companies">회사 목록</RouterLink>
+        <RouterLink to="/company/new/settlement?one_tab=upload">새회사 오네 정산</RouterLink>
+      </div>
 
       <div class="brand">
         <span class="brand-mark">CL</span>
@@ -509,6 +513,30 @@ onMounted(async () => {
   padding: 10px 12px;
   text-align: center;
   cursor: pointer;
+}
+
+.quick-links {
+  display: grid;
+  gap: 8px;
+  margin-top: -8px;
+}
+
+.quick-links a {
+  display: block;
+  border: 1px solid #e4e8f0;
+  border-radius: 10px;
+  background: #f8fafc;
+  color: #475569;
+  font-size: 13px;
+  font-weight: 800;
+  padding: 9px 11px;
+  text-align: center;
+  text-decoration: none;
+}
+
+.quick-links a:hover {
+  border-color: #c5d941;
+  color: #101827;
 }
 
 .btn.primary,
