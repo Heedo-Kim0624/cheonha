@@ -2,10 +2,6 @@
   <div class="fleet-page">
     <aside class="fleet-sidebar">
       <RouterLink to="/portal/operations" class="back-link">운영 통합관리로 돌아가기</RouterLink>
-      <div class="quick-links" aria-label="운영 바로가기">
-        <RouterLink to="/portal/companies">회사 목록</RouterLink>
-        <RouterLink to="/company/new/settlement?one_tab=upload">새회사 오네 정산</RouterLink>
-      </div>
 
       <div class="brand">
         <span class="brand-mark">CL</span>
@@ -14,15 +10,6 @@
           <h1>차량관리</h1>
         </div>
       </div>
-
-      <label class="company-select">
-        <span>차량 회사</span>
-        <select v-model="selectedCompany" @change="reload">
-          <option v-for="company in companies" :key="company.code" :value="company.code">
-            {{ company.name }}
-          </option>
-        </select>
-      </label>
 
       <nav class="fleet-nav" aria-label="차량관리 메뉴">
         <button
@@ -605,22 +592,19 @@ const statusChoices = ['유휴', 'A/S', '판매', '구독', '직영']
 const route = useRoute()
 const router = useRouter()
 const {
-  companies,
-  selectedCompany,
   fleetPayload,
   groups,
   loading,
   error,
-  loadCompanies,
   reload,
-} = useFleetSite('CHEONHA')
+} = useFleetSite()
 const search = ref('')
 const statusFilter = ref('')
 const selectedPlate = ref('')
 
 const activeTab = computed(() => route.meta.fleetTab || 'dashboard')
 const currentTab = computed(() => tabs.find((tab) => tab.key === activeTab.value))
-const legacyUrl = computed(() => `/fleet-management/?company=${encodeURIComponent(selectedCompany.value)}`)
+const legacyUrl = computed(() => '/fleet-management/')
 const selectedGroup = computed(() => groups.value.find((group) => group.plate === selectedPlate.value))
 const companyId = computed(() => fleetPayload.value?.company?.id || '')
 
@@ -1555,7 +1539,7 @@ function toApiDateTime(value) {
 
 async function downloadAccidentTemplate() {
   try {
-    const response = await downloadFleetAccidentTemplate({ company: selectedCompany.value })
+    const response = await downloadFleetAccidentTemplate()
     const blobUrl = URL.createObjectURL(response.data)
     const link = document.createElement('a')
     link.href = blobUrl
@@ -1567,12 +1551,7 @@ async function downloadAccidentTemplate() {
   }
 }
 
-watch(selectedCompany, () => {
-  selectedPlate.value = ''
-})
-
 onMounted(async () => {
-  await loadCompanies()
   await reload()
 })
 </script>
@@ -1612,30 +1591,6 @@ onMounted(async () => {
   cursor: pointer;
 }
 
-.quick-links {
-  display: grid;
-  gap: 8px;
-  margin-top: -8px;
-}
-
-.quick-links a {
-  display: block;
-  border: 1px solid #e4e8f0;
-  border-radius: 10px;
-  background: #f8fafc;
-  color: #475569;
-  font-size: 13px;
-  font-weight: 800;
-  padding: 9px 11px;
-  text-align: center;
-  text-decoration: none;
-}
-
-.quick-links a:hover {
-  border-color: #c5d941;
-  color: #101827;
-}
-
 .btn.primary,
 .brand-mark {
   border-color: #c5d941;
@@ -1667,19 +1622,6 @@ onMounted(async () => {
 .brand h1 {
   margin: 2px 0 0;
   font-size: 18px;
-}
-
-.company-select span,
-.company-select select {
-  display: block;
-  width: 100%;
-}
-
-.company-select span {
-  margin-bottom: 7px;
-  font-size: 13px;
-  font-weight: 900;
-  color: #64748b;
 }
 
 select,
