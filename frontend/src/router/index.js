@@ -11,6 +11,16 @@ const routes = [
   { path: '/operations', name: 'Operations', component: () => import('@/views/OperationsView.vue'), meta: { requiresAuth: true } },
   { path: '/inquiry', name: 'Inquiry', component: () => import('@/views/InquiryView.vue'), meta: { requiresAuth: true, adminOnly: true } },
   { path: '/region', name: 'Region', component: () => import('@/views/RegionView.vue'), meta: { requiresAuth: true, adminOnly: true } },
+  { path: '/portal/operations', redirect: '/operations' },
+  { path: '/portal/vehicle', redirect: '/portal/vehicle/dashboard' },
+  { path: '/portal/vehicle/dashboard', name: 'CleverPortalVehicleDashboard', component: () => import('@/views/FleetManagementView.vue'), meta: { requiresAuth: true, adminOnly: true, fleetTab: 'dashboard' } },
+  { path: '/portal/vehicle/status', redirect: '/portal/vehicle/vehicles' },
+  { path: '/portal/vehicle/vehicles', name: 'CleverPortalVehicleVehicles', component: () => import('@/views/FleetManagementView.vue'), meta: { requiresAuth: true, adminOnly: true, fleetTab: 'vehicles' } },
+  { path: '/portal/vehicle/subscriptions', name: 'CleverPortalVehicleSubscriptions', component: () => import('@/views/FleetManagementView.vue'), meta: { requiresAuth: true, adminOnly: true, fleetTab: 'subscriptions' } },
+  { path: '/portal/vehicle/returns', name: 'CleverPortalVehicleReturns', component: () => import('@/views/FleetManagementView.vue'), meta: { requiresAuth: true, adminOnly: true, fleetTab: 'returns' } },
+  { path: '/portal/vehicle/insurance', name: 'CleverPortalVehicleInsurance', component: () => import('@/views/FleetManagementView.vue'), meta: { requiresAuth: true, adminOnly: true, fleetTab: 'insurance' } },
+  { path: '/portal/vehicle/accidents', name: 'CleverPortalVehicleAccidents', component: () => import('@/views/FleetManagementView.vue'), meta: { requiresAuth: true, adminOnly: true, fleetTab: 'accidents' } },
+  { path: '/portal/vehicle/upload', name: 'CleverPortalVehicleUpload', component: () => import('@/views/FleetManagementView.vue'), meta: { requiresAuth: true, adminOnly: true, fleetTab: 'upload' } },
   { path: '/:pathMatch(.*)*', redirect: '/' }
 ]
 

@@ -40,6 +40,7 @@ INSTALLED_APPS = [
     'apps.common.apps.CommonConfig',
     'apps.mobile.apps.MobileConfig',
     'apps.inquiry.apps.InquiryConfig',
+    'apps.vehicle_management.apps.VehicleManagementConfig',
 ]
 
 MIDDLEWARE = [
