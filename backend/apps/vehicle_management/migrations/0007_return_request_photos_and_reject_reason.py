@@ -44,7 +44,7 @@ class Migration(migrations.Migration):
                 ),
             ],
             options={
-                "db_table": 'vehicle_mgmt"."return_request_photo',
+                "db_table": 'vehicle_mgmt_return_request_photo',
                 "ordering": ["id"],
                 "constraints": [
                     models.UniqueConstraint(

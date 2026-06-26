@@ -7,7 +7,7 @@
 - 프론트엔드: Vue 라우터, Vue 화면, 재사용 컴포넌트
 - 백엔드: Django REST API
 - 도메인 격리: `backend/apps/vehicle_management`
-- 기존 데이터 보존: 기존 `vehicle_mgmt` 스키마와 `fleet_*` 테이블을 그대로 사용
+- 기존 데이터 보존: 차량관리 전용 `vehicle_mgmt_*` 테이블 prefix와 `fleet_*` 도메인 모델을 유지
 - 기존 기능 보존: 정적 `/fleet-management/` 화면은 완전 이관 전까지 fallback으로 유지
 
 ## 현재 구조

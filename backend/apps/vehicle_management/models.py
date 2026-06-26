@@ -15,7 +15,7 @@ from django.conf import settings
 
 # ── helper ────────────────────────────────────────────────────────────────────
 class VMSchemaMixin:
-    """모든 vehicle_management 테이블은 vehicle_mgmt 스키마에 생성."""
+    """모든 vehicle_management 테이블은 vehicle_mgmt_ prefix로 생성."""
     pass
 
 
@@ -34,7 +34,7 @@ class Company(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        db_table = 'vehicle_mgmt"."company'
+        db_table = 'vehicle_mgmt_company'
         ordering = ['sort_order', 'id']
 
     def __str__(self):
@@ -92,7 +92,7 @@ class Vehicle(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        db_table = 'vehicle_mgmt"."vehicle'
+        db_table = 'vehicle_mgmt_vehicle'
         ordering = ['-created_at']
         constraints = [
             models.UniqueConstraint(
@@ -141,7 +141,7 @@ class PitRecord(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        db_table = 'vehicle_mgmt"."pit_record'
+        db_table = 'vehicle_mgmt_pit_record'
         ordering = ['-in_date', '-id']
         indexes = [
             models.Index(fields=['company', 'out_date']),
@@ -196,7 +196,7 @@ class CalendarEvent(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        db_table = 'vehicle_mgmt"."calendar_event'
+        db_table = 'vehicle_mgmt_calendar_event'
         ordering = ['event_date', 'event_time', 'id']
         indexes = [
             models.Index(fields=['company', 'event_date', 'kind']),
@@ -232,7 +232,7 @@ class SubscriptionRequest(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        db_table = 'vehicle_mgmt"."subscription_request'
+        db_table = 'vehicle_mgmt_subscription_request'
         ordering = ['-created_at']
         indexes = [
             models.Index(fields=['company', 'status']),
@@ -251,7 +251,7 @@ class SubscriptionRequestVehicle(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        db_table = 'vehicle_mgmt"."subscription_request_vehicle'
+        db_table = 'vehicle_mgmt_subscription_request_vehicle'
         constraints = [
             models.UniqueConstraint(
                 fields=['request', 'vehicle'],
@@ -290,7 +290,7 @@ class ReturnRequest(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        db_table = 'vehicle_mgmt"."return_request'
+        db_table = 'vehicle_mgmt_return_request'
         ordering = ['-created_at']
         indexes = [
             models.Index(fields=['company', 'status']),
@@ -315,7 +315,7 @@ class ReturnRequestPhoto(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        db_table = 'vehicle_mgmt"."return_request_photo'
+        db_table = 'vehicle_mgmt_return_request_photo'
         ordering = ['id']
         constraints = [
             models.UniqueConstraint(
@@ -347,7 +347,7 @@ class FleetVehicleRecord(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        db_table = 'vehicle_mgmt"."fleet_vehicle_record'
+        db_table = 'vehicle_mgmt_fleet_vehicle_record'
         ordering = ['vehicle_number', 'start_date', 'id']
         indexes = [
             models.Index(fields=['company', 'vehicle_number']),
@@ -378,7 +378,7 @@ class FleetVehicleDocument(models.Model):
     uploaded_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        db_table = 'vehicle_mgmt"."fleet_vehicle_document'
+        db_table = 'vehicle_mgmt_fleet_vehicle_document'
         ordering = ['vehicle_number', 'document_type', '-uploaded_at', '-id']
         indexes = [
             models.Index(fields=['company', 'vehicle_number']),
@@ -410,7 +410,7 @@ class FleetSubscriptionContract(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        db_table = 'vehicle_mgmt"."fleet_subscription_contract'
+        db_table = 'vehicle_mgmt_fleet_subscription_contract'
         ordering = ['-created_at']
         indexes = [
             models.Index(fields=['company', 'status']),
@@ -442,7 +442,7 @@ class FleetReturnRecord(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        db_table = 'vehicle_mgmt"."fleet_return_record'
+        db_table = 'vehicle_mgmt_fleet_return_record'
         ordering = ['-scheduled_at']
         indexes = [
             models.Index(fields=['company', 'status']),
@@ -473,7 +473,7 @@ class FleetInsurancePolicy(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        db_table = 'vehicle_mgmt"."fleet_insurance_policy'
+        db_table = 'vehicle_mgmt_fleet_insurance_policy'
         ordering = ['end_date', 'id']
         indexes = [
             models.Index(fields=['company', 'status']),
@@ -511,7 +511,7 @@ class FleetAccidentCase(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        db_table = 'vehicle_mgmt"."fleet_accident_case'
+        db_table = 'vehicle_mgmt_fleet_accident_case'
         ordering = ['-accident_at']
         indexes = [
             models.Index(fields=['company', 'status']),
@@ -551,7 +551,7 @@ class ASRequest(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        db_table = 'vehicle_mgmt"."as_request'
+        db_table = 'vehicle_mgmt_as_request'
         ordering = ['-created_at']
         indexes = [
             models.Index(fields=['company', 'status']),

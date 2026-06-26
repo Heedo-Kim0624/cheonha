@@ -1,4 +1,4 @@
-"""차량관리 도메인 테이블 (vehicle_mgmt 스키마)."""
+"""차량관리 도메인 테이블 (vehicle_mgmt_ table prefix)."""
 import django.db.models.deletion
 from django.conf import settings
 from django.db import migrations, models
@@ -23,7 +23,7 @@ class Migration(migrations.Migration):
                 ('created_at', models.DateTimeField(auto_now_add=True)),
             ],
             options={
-                'db_table': 'vehicle_mgmt"."company',
+                'db_table': 'vehicle_mgmt_company',
                 'ordering': ['sort_order', 'id'],
             },
         ),
@@ -48,7 +48,7 @@ class Migration(migrations.Migration):
                 ('company', models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name='vehicles', to='vehicle_management.company')),
             ],
             options={
-                'db_table': 'vehicle_mgmt"."vehicle',
+                'db_table': 'vehicle_mgmt_vehicle',
                 'ordering': ['-created_at'],
             },
         ),
@@ -75,7 +75,7 @@ class Migration(migrations.Migration):
                 ('company', models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name='subscription_requests', to='vehicle_management.company')),
             ],
             options={
-                'db_table': 'vehicle_mgmt"."subscription_request',
+                'db_table': 'vehicle_mgmt_subscription_request',
                 'ordering': ['-created_at'],
             },
         ),
@@ -96,7 +96,7 @@ class Migration(migrations.Migration):
                 ('vehicle', models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name='+', to='vehicle_management.vehicle')),
             ],
             options={
-                'db_table': 'vehicle_mgmt"."subscription_request_vehicle',
+                'db_table': 'vehicle_mgmt_subscription_request_vehicle',
             },
         ),
         migrations.AddConstraint(
@@ -123,7 +123,7 @@ class Migration(migrations.Migration):
                 ('company', models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name='return_requests', to='vehicle_management.company')),
             ],
             options={
-                'db_table': 'vehicle_mgmt"."return_request',
+                'db_table': 'vehicle_mgmt_return_request',
                 'ordering': ['-created_at'],
             },
         ),
@@ -148,7 +148,7 @@ class Migration(migrations.Migration):
                 ('company', models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name='as_requests', to='vehicle_management.company')),
             ],
             options={
-                'db_table': 'vehicle_mgmt"."as_request',
+                'db_table': 'vehicle_mgmt_as_request',
                 'ordering': ['-created_at'],
             },
         ),
@@ -173,7 +173,7 @@ class Migration(migrations.Migration):
                 ('vehicle', models.ForeignKey(blank=True, help_text='차량번호 끝 4자리로 자동 매칭', null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='pit_records', to='vehicle_management.vehicle')),
             ],
             options={
-                'db_table': 'vehicle_mgmt"."pit_record',
+                'db_table': 'vehicle_mgmt_pit_record',
                 'ordering': ['-in_date', '-id'],
             },
         ),
@@ -205,7 +205,7 @@ class Migration(migrations.Migration):
                 ('related_vehicle', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='+', to='vehicle_management.vehicle')),
             ],
             options={
-                'db_table': 'vehicle_mgmt"."calendar_event',
+                'db_table': 'vehicle_mgmt_calendar_event',
                 'ordering': ['event_date', 'event_time', 'id'],
             },
         ),

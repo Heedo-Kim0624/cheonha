@@ -6,7 +6,7 @@
 
 - 프론트엔드: Vue 라우트, Vue 화면, 재사용 컴포넌트, API 클라이언트
 - 백엔드: Django REST API, `apps.vehicle_management` 도메인 앱
-- 데이터: 기존 `vehicle_mgmt` 스키마와 `fleet_*` 테이블 유지
+- 데이터: 기존 차량관리 데이터를 보존하면서 신규 Django 모델은 `vehicle_mgmt_*` 테이블 prefix로 분리
 - 정적 HTML: `/fleet-management/`는 임시 fallback 및 기능 참고용으로만 유지
 
 ## GitHub에 포함해야 하는 차량관리 핵심 파일

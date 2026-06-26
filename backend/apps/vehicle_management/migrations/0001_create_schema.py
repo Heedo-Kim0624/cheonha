@@ -1,22 +1,21 @@
-"""PostgreSQL 'vehicle_mgmt' 스키마 생성 (sqlite는 no-op)."""
-from django.db import migrations, connection
+"""Vehicle management migration namespace placeholder.
+
+The first implementation attempted to create a PostgreSQL-only schema and then
+used quoted schema table names. That made the default sqlite development DB
+fail with ``unknown database "vehicle_mgmt"``. Vehicle-management tables now use
+portable ``vehicle_mgmt_*`` table names, so this migration intentionally keeps
+the migration namespace without touching the database.
+"""
+from django.db import migrations
 
 
-def create_schema(apps, schema_editor):
-    if connection.vendor == 'postgresql':
-        with connection.cursor() as cur:
-            cur.execute('CREATE SCHEMA IF NOT EXISTS vehicle_mgmt')
-
-
-def drop_schema(apps, schema_editor):
-    if connection.vendor == 'postgresql':
-        with connection.cursor() as cur:
-            cur.execute('DROP SCHEMA IF EXISTS vehicle_mgmt CASCADE')
+def noop(apps, schema_editor):
+    return None
 
 
 class Migration(migrations.Migration):
     initial = True
     dependencies = []
     operations = [
-        migrations.RunPython(create_schema, drop_schema),
+        migrations.RunPython(noop, noop),
     ]

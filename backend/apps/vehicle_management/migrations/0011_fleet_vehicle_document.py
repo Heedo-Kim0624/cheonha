@@ -27,7 +27,7 @@ class Migration(migrations.Migration):
                 ('vehicle_record', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='documents', to='vehicle_management.fleetvehiclerecord')),
             ],
             options={
-                'db_table': 'vehicle_mgmt"."fleet_vehicle_document',
+                'db_table': 'vehicle_mgmt_fleet_vehicle_document',
                 'ordering': ['vehicle_number', 'document_type', '-uploaded_at', '-id'],
                 'indexes': [
                     models.Index(fields=['company', 'vehicle_number'], name='vehicle_mgm_company_78ed8d_idx'),

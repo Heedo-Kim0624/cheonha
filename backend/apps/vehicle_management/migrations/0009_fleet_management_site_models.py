@@ -33,7 +33,7 @@ class Migration(migrations.Migration):
                 ("vehicle", models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name="fleet_subscription_contracts", to="vehicle_management.vehicle")),
             ],
             options={
-                "db_table": 'vehicle_mgmt"."fleet_subscription_contract',
+                "db_table": 'vehicle_mgmt_fleet_subscription_contract',
                 "ordering": ["-created_at"],
             },
         ),
@@ -59,7 +59,7 @@ class Migration(migrations.Migration):
                 ("vehicle", models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name="fleet_return_records", to="vehicle_management.vehicle")),
             ],
             options={
-                "db_table": 'vehicle_mgmt"."fleet_return_record',
+                "db_table": 'vehicle_mgmt_fleet_return_record',
                 "ordering": ["-scheduled_at"],
             },
         ),
@@ -84,7 +84,7 @@ class Migration(migrations.Migration):
                 ("vehicle", models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name="fleet_insurance_policies", to="vehicle_management.vehicle")),
             ],
             options={
-                "db_table": 'vehicle_mgmt"."fleet_insurance_policy',
+                "db_table": 'vehicle_mgmt_fleet_insurance_policy',
                 "ordering": ["end_date", "id"],
             },
         ),
@@ -112,7 +112,7 @@ class Migration(migrations.Migration):
                 ("vehicle", models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name="fleet_accident_cases", to="vehicle_management.vehicle")),
             ],
             options={
-                "db_table": 'vehicle_mgmt"."fleet_accident_case',
+                "db_table": 'vehicle_mgmt_fleet_accident_case',
                 "ordering": ["-accident_at"],
             },
         ),

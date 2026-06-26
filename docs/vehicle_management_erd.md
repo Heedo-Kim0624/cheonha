@@ -4,8 +4,9 @@
 
 - Django app: `backend/apps/vehicle_management`
 - API prefix: `/api/v1/vehicle/`
-- DB schema: `vehicle_mgmt`
+- DB table prefix: `vehicle_mgmt_`
 - 주의: 기존 현장관리 앱용 요청 테이블과 운영 통합관리 웹용 `fleet_*` 테이블을 함께 사용한다.
+- DB 호환성: 로컬 sqlite와 운영 PostgreSQL 모두에서 migration이 가능하도록 별도 PostgreSQL schema 대신 `vehicle_mgmt_*` 테이블명을 사용한다.
 
 ## Mermaid ERD
 
