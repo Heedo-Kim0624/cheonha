@@ -66,6 +66,111 @@
           <VehicleCalendarPanel company-code="" />
         </section>
 
+        <section class="panel accident-dashboard">
+          <div class="panel-head">
+            <div>
+              <h3>사고·보상 분석</h3>
+              <p>연도별 사고건수와 보상금, 차량번호별 누적 사고 이력을 분석합니다.</p>
+            </div>
+            <select v-model.number="accidentDashboardYear" aria-label="사고·보상 분석 연도">
+              <option v-for="year in accidentYears" :key="year" :value="year">{{ year }}</option>
+            </select>
+          </div>
+
+          <div class="accident-metrics">
+            <div v-for="metric in accidentDashboardMetrics" :key="metric.key" class="accident-metric">
+              <span>{{ metric.label }}</span>
+              <strong>{{ metric.value }}</strong>
+              <small>{{ metric.caption }}</small>
+            </div>
+          </div>
+
+          <div class="accident-dashboard-grid">
+            <section class="accident-subpanel">
+              <div class="subpanel-head">
+                <h4>월별 사고·보상 추이</h4>
+                <span>선택 연도 기준</span>
+              </div>
+              <div class="accident-chart" aria-label="월별 사고 보상 추이">
+                <div v-for="month in accidentMonthlyStats" :key="month.month" class="chart-month">
+                  <div class="chart-bars">
+                    <span
+                      class="bar accident"
+                      :style="{ height: `${month.countHeight}%` }"
+                      :title="`${month.month}월 사고 ${month.count}건`"
+                    ></span>
+                    <span
+                      class="bar compensation"
+                      :style="{ height: `${month.amountHeight}%` }"
+                      :title="`${month.month}월 보상 ${money(month.compensation)}`"
+                    ></span>
+                  </div>
+                  <small>{{ month.month }}월</small>
+                </div>
+              </div>
+            </section>
+
+            <section class="accident-subpanel">
+              <div class="subpanel-head">
+                <h4>사고 처리 현황</h4>
+                <span>진행중·종결·미지급 기준</span>
+              </div>
+              <div class="accident-status-list">
+                <div v-for="item in accidentStatusStats" :key="item.key" class="accident-status-row">
+                  <span class="status-dot" :class="item.key"></span>
+                  <span>{{ item.label }}</span>
+                  <strong>{{ item.value }}</strong>
+                </div>
+              </div>
+            </section>
+          </div>
+
+          <section class="accident-subpanel accident-vehicle-summary">
+            <div class="subpanel-head">
+              <h4>차량번호별 사고·보상 요약</h4>
+              <span>사고횟수, 보상금액, 지급금액을 차량번호 단위로 확인합니다.</span>
+            </div>
+            <div class="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>차량번호</th>
+                    <th>현재 차대번호</th>
+                    <th>실차량</th>
+                    <th>사고횟수</th>
+                    <th>최종 사고일</th>
+                    <th class="money-cell">보상금액</th>
+                    <th class="money-cell">지급금액</th>
+                    <th class="money-cell">미지급금액</th>
+                    <th class="money-cell">수리비 미수금</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-if="!accidentVehicleSummary.length">
+                    <td colspan="9" class="empty-cell">사고·보상 데이터가 없습니다.</td>
+                  </tr>
+                  <tr
+                    v-for="row in accidentVehicleSummary"
+                    :key="row.plate"
+                    class="clickable-row"
+                    @click="selectGroup(row.group)"
+                  >
+                    <td><strong>{{ row.plate }}</strong></td>
+                    <td>{{ row.vin }}</td>
+                    <td>{{ row.model }}</td>
+                    <td>{{ row.count }}건</td>
+                    <td>{{ date(row.last) }}</td>
+                    <td class="money-cell">{{ money(row.compensation) }}</td>
+                    <td class="money-cell">{{ money(row.paid) }}</td>
+                    <td class="money-cell">{{ money(row.unpaid) }}</td>
+                    <td class="money-cell">{{ money(row.repairUnpaid) }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </section>
+
         <section class="panel">
           <div class="panel-head">
             <div>
@@ -697,6 +802,7 @@ const documentTypes = [
 ]
 
 const returnPhotoLabels = ['전면', '후면', '좌측', '우측', '계기판', '실내', '냉동탑 내부', '파손 부위']
+const accidentDashboardYear = ref(new Date().getFullYear())
 const detailMode = ref('all')
 const saving = ref(false)
 const modal = ref({ open: false, type: '', title: '', caption: '', submitLabel: '', wide: false })
@@ -793,6 +899,110 @@ const filteredSubscriptions = computed(() => filterRows(allSubscriptions.value))
 const filteredReturns = computed(() => filterRows(allReturns.value))
 const filteredInsurances = computed(() => filterRows(allInsurances.value))
 const filteredAccidents = computed(() => filterRows(allAccidents.value))
+
+const accidentEntries = computed(() => groups.value.flatMap((group) =>
+  (group.accidents || []).map((item) => ({
+    item,
+    group,
+    year: accidentYear(item.date),
+    month: accidentMonth(item.date),
+    compensation: Number(item.compensation || 0),
+    paid: Number(item.paid || 0),
+  })),
+))
+
+const accidentYears = computed(() => {
+  const years = new Set(accidentEntries.value.map((entry) => entry.year).filter(Boolean))
+  years.add(new Date().getFullYear())
+  return [...years].sort((a, b) => b - a)
+})
+
+const selectedAccidentEntries = computed(() =>
+  accidentEntries.value.filter((entry) => entry.year === Number(accidentDashboardYear.value)),
+)
+
+const accidentDashboardTotals = computed(() => {
+  const entries = selectedAccidentEntries.value
+  const compensation = entries.reduce((sum, entry) => sum + entry.compensation, 0)
+  const paid = entries.reduce((sum, entry) => sum + entry.paid, 0)
+  return {
+    count: entries.length,
+    open: entries.filter((entry) => isOpenAccident(entry.item)).length,
+    compensation,
+    paid,
+    unpaid: Math.max(0, compensation - paid),
+  }
+})
+
+const accidentDashboardMetrics = computed(() => {
+  const totals = accidentDashboardTotals.value
+  const average = totals.count ? Math.round(totals.compensation / totals.count) : 0
+  const paidRate = totals.compensation ? Math.round((totals.paid / totals.compensation) * 100) : 0
+  const unpaidCount = selectedAccidentEntries.value.filter((entry) => entry.compensation > entry.paid).length
+  return [
+    { key: 'count', label: '전체 사고건수', value: `${totals.count}건`, caption: `진행중 ${totals.open}건` },
+    { key: 'compensation', label: '전체 보상금액', value: money(totals.compensation), caption: `사고 1건 평균 ${money(average)}` },
+    { key: 'paid', label: '전체 지급금액', value: money(totals.paid), caption: `지급률 ${paidRate}%` },
+    { key: 'unpaid', label: '전체 미지급금액', value: money(totals.unpaid), caption: `미지급 사고 ${unpaidCount}건` },
+  ]
+})
+
+const accidentMonthlyStats = computed(() => {
+  const months = Array.from({ length: 12 }, (_, index) => ({
+    month: index + 1,
+    count: 0,
+    compensation: 0,
+  }))
+  selectedAccidentEntries.value.forEach((entry) => {
+    if (!entry.month) return
+    months[entry.month - 1].count += 1
+    months[entry.month - 1].compensation += entry.compensation
+  })
+  const maxCount = Math.max(1, ...months.map((item) => item.count))
+  const maxAmount = Math.max(1, ...months.map((item) => item.compensation))
+  return months.map((item) => ({
+    ...item,
+    countHeight: Math.max(2, Math.round((item.count / maxCount) * 100)),
+    amountHeight: Math.max(2, Math.round((item.compensation / maxAmount) * 100)),
+  }))
+})
+
+const accidentStatusStats = computed(() => {
+  const entries = selectedAccidentEntries.value
+  const closed = entries.filter((entry) => !isOpenAccident(entry.item)).length
+  const unpaid = entries.filter((entry) => entry.compensation > entry.paid).length
+  const vehicles = new Set(entries.map((entry) => entry.group?.plate).filter(Boolean)).size
+  return [
+    { key: 'open', label: '진행중 사고', value: `${entries.length - closed}건` },
+    { key: 'closed', label: '종결 사고', value: `${closed}건` },
+    { key: 'unpaid', label: '미지급 사고', value: `${unpaid}건` },
+    { key: 'vehicles', label: '사고 발생 차량', value: `${vehicles}대` },
+  ]
+})
+
+const accidentVehicleSummary = computed(() => groups.value
+  .map((group) => {
+    const entries = selectedAccidentEntries.value.filter((entry) => entry.group === group)
+    if (!entries.length) return null
+    const record = currentRecord(group)
+    const compensation = entries.reduce((sum, entry) => sum + entry.compensation, 0)
+    const paid = entries.reduce((sum, entry) => sum + entry.paid, 0)
+    return {
+      group,
+      plate: group.plate,
+      vin: shortVin(record?.vin),
+      model: record?.model || '-',
+      count: entries.length,
+      last: entries.map((entry) => entry.item.date).filter(Boolean).sort().at(-1) || '',
+      compensation,
+      paid,
+      unpaid: Math.max(0, compensation - paid),
+      repairUnpaid: repairStats(group).unpaid,
+    }
+  })
+  .filter(Boolean)
+  .sort((a, b) => b.count - a.count || b.compensation - a.compensation || String(a.plate).localeCompare(String(b.plate))),
+)
 
 const dashboardMetrics = computed(() => {
   const activeContracts = allSubscriptions.value.filter((item) => item.status.includes('구독') || item.status.toLowerCase().includes('active')).length
@@ -926,6 +1136,26 @@ function returnTotals(item) {
       .filter((repair) => repair.payment !== '입금완료')
       .reduce((sum, repair) => sum + Number(repair.claim || 0), 0),
   }
+}
+
+function accidentDateValue(value) {
+  if (!value) return null
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime()) ? null : parsed
+}
+
+function accidentYear(value) {
+  return accidentDateValue(value)?.getFullYear() || null
+}
+
+function accidentMonth(value) {
+  const parsed = accidentDateValue(value)
+  return parsed ? parsed.getMonth() + 1 : null
+}
+
+function isOpenAccident(item) {
+  const status = String(item?.status || '').trim().toLowerCase()
+  return !status || status.includes('진행') || status.includes('미지급') || status.includes('open') || status.includes('pending')
 }
 
 function documentByType(group, type, record = form.value.record) {
@@ -2262,6 +2492,195 @@ input {
   color: #667085;
 }
 
+.accident-dashboard {
+  display: grid;
+  gap: 18px;
+}
+
+.accident-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.accident-metric,
+.accident-subpanel {
+  border: 1px solid #e8edf5;
+  border-radius: 14px;
+  background: #fff;
+}
+
+.accident-metric {
+  padding: 18px;
+}
+
+.accident-metric span,
+.accident-metric small,
+.subpanel-head span {
+  display: block;
+  color: #718096;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.accident-metric strong {
+  display: block;
+  margin: 9px 0 7px;
+  font-size: 26px;
+}
+
+.accident-dashboard-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(320px, .9fr);
+  gap: 16px;
+}
+
+.accident-subpanel {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.subpanel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid #edf1f7;
+  padding: 16px 18px;
+}
+
+.subpanel-head h4 {
+  margin: 0;
+  font-size: 17px;
+}
+
+.accident-chart {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 12px;
+  height: 250px;
+  align-items: end;
+  padding: 24px 24px 18px;
+}
+
+.chart-month {
+  display: grid;
+  grid-template-rows: 1fr auto;
+  gap: 8px;
+  min-width: 0;
+  height: 100%;
+}
+
+.chart-bars {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 5px;
+  min-height: 0;
+}
+
+.bar {
+  width: 12px;
+  min-height: 4px;
+  border-radius: 999px 999px 0 0;
+}
+
+.bar.accident {
+  background: #4965e4;
+}
+
+.bar.compensation {
+  background: #9dccf6;
+}
+
+.chart-month small {
+  color: #718096;
+  font-size: 12px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.accident-status-list {
+  display: grid;
+  gap: 10px;
+  padding: 18px;
+}
+
+.accident-status-row {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  border-radius: 12px;
+  background: #f7f9fc;
+  padding: 13px 14px;
+  font-weight: 900;
+}
+
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: #94a3b8;
+}
+
+.status-dot.open {
+  background: #f59e0b;
+}
+
+.status-dot.closed {
+  background: #10b981;
+}
+
+.status-dot.unpaid {
+  background: #ef4444;
+}
+
+.status-dot.vehicles {
+  background: #4965e4;
+}
+
+.accident-vehicle-summary {
+  margin-top: 0;
+}
+
+.table-scroll {
+  overflow-x: auto;
+}
+
+.table-scroll table {
+  width: 100%;
+  min-width: 1100px;
+  border-collapse: collapse;
+}
+
+.table-scroll th {
+  background: #101827;
+  color: #fff;
+  padding: 11px 12px;
+  text-align: left;
+}
+
+.table-scroll td {
+  border-bottom: 1px solid #edf1f7;
+  border-right: 1px solid #edf1f7;
+  padding: 10px 12px;
+}
+
+.table-scroll .clickable-row {
+  cursor: pointer;
+}
+
+.table-scroll .clickable-row:hover td {
+  background: #f6f8ec;
+}
+
+.empty-cell {
+  color: #718096;
+  text-align: center;
+  font-weight: 800;
+}
+
 .detail-table {
   width: 100%;
   min-width: 920px;
@@ -2488,6 +2907,11 @@ textarea,
 
   .metric-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .accident-metrics,
+  .accident-dashboard-grid {
+    grid-template-columns: 1fr;
   }
 
   .topbar {
