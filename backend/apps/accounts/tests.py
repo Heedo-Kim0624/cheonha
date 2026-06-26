@@ -2,9 +2,31 @@ from django.test import TestCase
 from django.contrib.auth import get_user_model
 from rest_framework.test import APITestCase, APIClient
 from rest_framework import status
-from .models import Team
+from .models import Shipper, Team
+from .serializers import normalize_company_shippers, normalize_enabled_shipper_tabs, union_shipper_tabs
 
 User = get_user_model()
+
+
+class CompanyShipperNormalizeTests(TestCase):
+    def test_single_non_default_shipper_does_not_readd_kurly(self):
+        self.assertEqual(normalize_company_shippers(["one"]), ["one"])
+
+    def test_empty_shipper_selection_uses_default(self):
+        self.assertEqual(normalize_company_shippers([]), ["kurly"])
+
+    def test_one_shipper_tabs_do_not_readd_kurly_tabs(self):
+        Shipper.objects.create(
+            code="one",
+            name="오네",
+            default_enabled_tabs=["settlement"],
+            available_tabs=["settlement"],
+        )
+
+        shipper_tabs = normalize_enabled_shipper_tabs(["one"], {"one": ["settlement"]})
+
+        self.assertEqual(shipper_tabs, {"one": ["settlement"]})
+        self.assertEqual(union_shipper_tabs(shipper_tabs), ["settlement"])
 
 
 class TeamModelTests(TestCase):

@@ -40,6 +40,12 @@ INSTALLED_APPS = [
     'apps.common.apps.CommonConfig',
     'apps.mobile.apps.MobileConfig',
     'apps.inquiry.apps.InquiryConfig',
+    'apps.tracking.apps.TrackingConfig',
+    'apps.points.apps.PointsConfig',
+    'apps.manpower.apps.ManpowerConfig',
+    'apps.territory.apps.TerritoryConfig',
+    'apps.one_settlement.apps.OneSettlementConfig',
+    'apps.field_manager.apps.FieldManagerConfig',
     'apps.vehicle_management.apps.VehicleManagementConfig',
 ]
 
@@ -50,6 +56,8 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'config.middleware.TenantSchemaRoutingMiddleware',
+    'apps.dashboard.middleware.WorkflowMonitorMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'config.middleware.FeatureFlagMiddleware',
@@ -149,8 +157,8 @@ REST_FRAMEWORK = {
 
 # Simple JWT 설정
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(seconds=config('ACCESS_TOKEN_LIFETIME', default=3600, cast=int)),
-    'REFRESH_TOKEN_LIFETIME': timedelta(seconds=config('REFRESH_TOKEN_LIFETIME', default=86400, cast=int)),
+    'ACCESS_TOKEN_LIFETIME': timedelta(seconds=config('ACCESS_TOKEN_LIFETIME', default=43200, cast=int)),
+    'REFRESH_TOKEN_LIFETIME': timedelta(seconds=config('REFRESH_TOKEN_LIFETIME', default=604800, cast=int)),
     'ROTATE_REFRESH_TOKENS': True,
     'BLACKLIST_AFTER_ROTATION': False,
 }
@@ -174,6 +182,22 @@ CORS_ALLOWED_ORIGINS = config(
     cast=lambda v: [s.strip() for s in v.split(',')]
 )
 
+GOOGLE_VISION_API_KEY = config(
+    'GOOGLE_VISION_API_KEY',
+    default='',
+)
+
+VWORLD_API_KEY = config(
+    'VWORLD_API_KEY',
+    default='',
+)
+
+CLEVER_ADMIN_USERNAMES = config(
+    'CLEVER_ADMIN_USERNAMES',
+    default='clever_admin,admin2',
+    cast=lambda v: [s.strip() for s in v.split(',') if s.strip()],
+)
+
 # Feature Flags
 FEATURE_FLAGS = {
     'accounts': True,
@@ -183,7 +207,19 @@ FEATURE_FLAGS = {
     'crew': True,
     'partner': True,
     'dashboard': True,
+    'one': True,
 }
+
+TENANT_SCHEMA_ROUTING_ENABLED = config(
+    'TENANT_SCHEMA_ROUTING_ENABLED',
+    default=False,
+    cast=bool,
+)
+TENANT_SCHEMA_COMPANIES = config(
+    'TENANT_SCHEMA_COMPANIES',
+    default='',
+    cast=lambda v: [s.strip().lower() for s in v.split(',') if s.strip()],
+)
 
 # Logging 설정
 LOGGING = {

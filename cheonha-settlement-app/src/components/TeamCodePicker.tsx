@@ -9,6 +9,7 @@ import {
   Pressable,
 } from "react-native";
 import { colors, typography } from "../theme";
+import { useAppMessages } from "../services/appMessages";
 
 const TEAM_CODES = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
 
@@ -25,6 +26,8 @@ export default function TeamCodePicker({
   onSelect,
   onClose,
 }: Props) {
+  const { message } = useAppMessages();
+
   return (
     <Modal
       visible={visible}
@@ -35,7 +38,7 @@ export default function TeamCodePicker({
       <Pressable style={styles.overlay} onPress={onClose}>
         <Pressable style={styles.sheet}>
           <View style={styles.handle} />
-          <Text style={styles.title}>소속 조 선택</Text>
+          <Text style={styles.title}>{message("team_picker_title", "소속 조 선택")}</Text>
           <FlatList
             data={TEAM_CODES}
             numColumns={6}

@@ -33,15 +33,27 @@ services:
       - DB_PORT=5432
       - ALLOWED_HOSTS=${ALLOWED_HOSTS:-*}
       - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-http://localhost,http://localhost:3000}
+      - TENANT_SCHEMA_ROUTING_ENABLED=${TENANT_SCHEMA_ROUTING_ENABLED:-False}
+      - TENANT_SCHEMA_COMPANIES=${TENANT_SCHEMA_COMPANIES:-}
+      - TRACKING_DRIVE_FOLDER_ID=${TRACKING_DRIVE_FOLDER_ID:-}
+      - TRACKING_DRIVE_SERVICE_ACCOUNT_FILE=${TRACKING_DRIVE_SERVICE_ACCOUNT_FILE:-}
+      - GOOGLE_APPLICATION_CREDENTIALS=${GOOGLE_APPLICATION_CREDENTIALS:-}
+      - TRACKING_DRIVE_MIN_VERSION_CODE=${TRACKING_DRIVE_MIN_VERSION_CODE:-47}
+      - TRACKING_DRIVE_MASK_START_DATE=${TRACKING_DRIVE_MASK_START_DATE:-2000-01-01}
+      - TRACKING_DRIVE_REQUIRE_MARKETING_CONSENT=${TRACKING_DRIVE_REQUIRE_MARKETING_CONSENT:-False}
+      - TRACKING_DRIVE_INCLUDE_WEATHER=${TRACKING_DRIVE_INCLUDE_WEATHER:-False}
+      - TRACKING_PROCESSED_CSV_EXPORT_DIR=${TRACKING_PROCESSED_CSV_EXPORT_DIR:-}
     volumes:
       - static_files:/app/staticfiles
       - media_files:/app/media
+      - ./secrets:/run/secrets/cheonha:ro
     depends_on:
       db:
         condition: service_healthy
     command: >
-      sh -c "python manage.py migrate --noinput &&
+      sh -c "python manage.py migrate --fake-initial --noinput &&
              python manage.py migrate --run-syncdb --noinput &&
+             python manage.py ensure_yongcha_schema &&
              python manage.py collectstatic --noinput 2>/dev/null;
              gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 3 --timeout 120"
 

@@ -24,6 +24,7 @@ class Settlement(AuditMixin):
         related_name='settlements',
         verbose_name='팀'
     )
+    shipper_code = models.CharField('Shipper code', max_length=40, default='kurly', db_index=True)
     status = models.CharField('상태', max_length=20, choices=STATUS_CHOICES, default='DRAFT')
     total_receive = models.DecimalField(
         '총 수신액',
@@ -75,7 +76,7 @@ class Settlement(AuditMixin):
         verbose_name = '정산'
         verbose_name_plural = '정산'
         ordering = ['-period_start']
-        unique_together = ('team', 'period_start', 'period_end')
+        unique_together = ('team', 'shipper_code', 'period_start', 'period_end')
 
     def __str__(self):
         return f'{self.team} - {self.period_start} ~ {self.period_end}'
@@ -111,6 +112,8 @@ class SettlementDetail(AuditMixin):
         null=True,
         verbose_name='배송원'
     )
+    shipper_code = models.CharField('Shipper code', max_length=40, default='kurly', db_index=True)
+    is_yongcha = models.BooleanField('용차 정산 여부', default=False, db_index=True)
     region = models.CharField('권역', max_length=100)
     delivery_type = models.CharField('배송타입', max_length=20, choices=DELIVERY_TYPE_CHOICES)
     boxes = models.IntegerField('박스수', default=0)

@@ -5,6 +5,7 @@ from django.shortcuts import get_object_or_404
 import logging
 
 from apps.common.views import BaseViewSet
+from apps.common.company_scope import get_company_app_from_request
 from .models import Region, RegionPrice, PriceHistory
 from .serializers import RegionSerializer, RegionPriceSerializer, PriceHistorySerializer
 
@@ -25,7 +26,7 @@ class RegionViewSet(BaseViewSet):
 
         # 관리자는 모든 권역 조회
         if user.is_admin():
-            return Region.objects.filter(is_active=True)
+            return Region.objects.filter(is_active=True, team__company_app=get_company_app_from_request(self.request))
 
         # 팀장/일반사용자는 자신의 팀 권역만 조회
         if user.team:
@@ -45,7 +46,7 @@ class RegionPriceViewSet(viewsets.ModelViewSet):
 
         # 관리자는 모든 단가 조회
         if user.is_admin():
-            return RegionPrice.objects.all()
+            return RegionPrice.objects.filter(region__team__company_app=get_company_app_from_request(self.request))
 
         # 팀장/일반사용자는 자신의 팀 권역 단가만 조회
         if user.team:

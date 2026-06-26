@@ -11,7 +11,7 @@ const config = ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
   name: appName,
   slug: "cheonha-settlement-app",
-  version: "1.0.10",
+  version: "1.0.47",
   orientation: "portrait",
   icon: "./assets/icon.png",
   userInterfaceStyle: "light",
@@ -32,6 +32,7 @@ const config = ({ config }: ConfigContext): ExpoConfig => ({
       foregroundImage: "./assets/adaptive-icon.png",
       backgroundColor: "#1B3A5C",
     },
+    versionCode: 49,
     package: isProduction
       ? "com.cheonha.settlement"
       : "com.cheonha.settlement.dev",

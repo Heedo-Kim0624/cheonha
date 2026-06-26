@@ -146,10 +146,13 @@ sudo $COMPOSE_CMD ps
 log_info "관리자 계정 생성..."
 sudo $COMPOSE_CMD exec -T backend python manage.py shell -c "
 from django.contrib.auth import get_user_model
+from django.utils.crypto import get_random_string
+import os
 User = get_user_model()
 if not User.objects.filter(username='admin').exists():
-    User.objects.create_superuser('admin', 'admin@cheonha.com', 'admin1234!', role='ADMIN')
-    print('관리자 계정 생성 완료: admin / admin1234!')
+    admin_password = os.environ.get('ADMIN_PASSWORD') or get_random_string(24)
+    User.objects.create_superuser('admin', 'admin@cheonha.com', admin_password, role='ADMIN')
+    print('관리자 계정 생성 완료: admin')
 else:
     print('관리자 계정이 이미 존재합니다.')
 " 2>/dev/null || log_warn "관리자 계정 생성은 컨테이너 시작 후 수동으로 해주세요."
@@ -163,7 +166,7 @@ echo "  웹사이트:    http://${PUBLIC_IP:-54.180.88.180}"
 echo "  API 문서:    http://${PUBLIC_IP:-54.180.88.180}/api/schema/swagger/"
 echo "  Django Admin: http://${PUBLIC_IP:-54.180.88.180}/admin/"
 echo ""
-echo "  관리자 계정: admin / admin1234!"
+echo "  관리자 계정: admin / ADMIN_PASSWORD env or generated password"
 echo "  (첫 로그인 후 반드시 비밀번호를 변경하세요)"
 echo ""
 echo "=========================================="

@@ -16,10 +16,16 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { colors, typography } from "../theme";
-import { api, PRIVACY_POLICY_URL, saveTokens } from "../services/api";
-import { RootStackParamList } from "../navigation/types";
+
 import TeamCodePicker from "../components/TeamCodePicker";
+import { RootStackParamList } from "../navigation/types";
+import {
+  api,
+  PRIVACY_POLICY_URL,
+  saveTokens,
+} from "../services/api";
+import { useAppMessages } from "../services/appMessages";
+import { colors, typography } from "../theme";
 
 type Nav = NativeStackNavigationProp<RootStackParamList, "Login">;
 
@@ -30,50 +36,100 @@ export default function LoginScreen() {
   const [password, setPassword] = useState("");
   const [showPicker, setShowPicker] = useState(false);
   const [loading, setLoading] = useState(false);
-
-  const handlePasswordChange = (value: string) => {
-    setPassword(value.replace(/\D/g, "").slice(0, 4));
-  };
+  const { message } = useAppMessages();
 
   const openPrivacyPolicy = async () => {
     try {
-      await Linking.openURL(PRIVACY_POLICY_URL);
+      await Linking.openURL(
+        message("signup_privacy_policy_url", PRIVACY_POLICY_URL)
+      );
     } catch {
-      Alert.alert("알림", "개인정보처리방침 페이지를 열 수 없습니다.");
+      Alert.alert(
+        message("generic_notice_title", "안내"),
+        message(
+          "privacy_open_failed_message",
+          "개인정보처리방침 페이지를 열 수 없습니다."
+        )
+      );
     }
   };
 
   const handleLogin = async () => {
     if (!name.trim()) {
-      Alert.alert("알림", "이름을 입력해 주세요.");
+      Alert.alert(
+        message("generic_notice_title", "안내"),
+        message("login_name_required_message", "이름을 입력해 주세요.")
+      );
       return;
     }
-    if (!teamCode) {
-      Alert.alert("알림", "소속 조를 선택해 주세요.");
+    if (!teamCode.trim()) {
+      Alert.alert(
+        message("generic_notice_title", "안내"),
+        message("login_team_required_message", "조를 선택해 주세요.")
+      );
       return;
     }
     if (password.length !== 4) {
-      Alert.alert("알림", "비밀번호 4자리를 입력해 주세요.");
+      Alert.alert(
+        message("generic_notice_title", "안내"),
+        message(
+          "login_password_required_message",
+          "비밀번호 4자리를 입력해 주세요."
+        )
+      );
       return;
     }
 
     setLoading(true);
-    const { data, error } = await api.login(name.trim(), teamCode, password);
-    setLoading(false);
+    try {
+      const { data, error } = await api.login(name.trim(), teamCode, password);
+      if (error || !data) {
+        Alert.alert(
+          message("generic_error_title", "오류"),
+          error || message("login_failed_message", "로그인에 실패했습니다.")
+        );
+        return;
+      }
 
-    if (error) {
-      Alert.alert("오류", error);
-      return;
+      await saveTokens(data.access, data.refresh);
+
+      const goCalendar = () =>
+        navigation.replace("Calendar", {
+          profileName: data.name,
+          profileTeamCode: data.team_code,
+          requiresPasswordChange: data.requires_password_change,
+        });
+
+      if (data.signup_completed === false) {
+        Alert.alert(
+          message("login_signup_prompt_title", "회원가입 안내"),
+          message("login_signup_prompt_body", "기존 정보로 회원가입 하시겠습니까?"),
+          [
+            {
+              text: message("login_signup_later_label", "나중에"),
+              style: "cancel",
+              onPress: goCalendar,
+            },
+            {
+              text: message("signup_button_label", "회원가입"),
+              onPress: () =>
+                navigation.replace("Signup", {
+                  mode: "migration",
+                  initialName: data.name,
+                  initialTeamCode: data.team_code,
+                  initialVehicleNumber: data.vehicle_number,
+                  initialPassword: password,
+                }),
+            },
+          ]
+        );
+        return;
+      }
+
+      goCalendar();
+    } finally {
+      setLoading(false);
     }
-
-    if (!data) return;
-
-    await saveTokens(data.access, data.refresh);
-    navigation.replace("Calendar", {
-      profileName: data.name,
-      profileTeamCode: data.team_code,
-      requiresPasswordChange: data.requires_password_change,
-    });
   };
 
   return (
@@ -86,37 +142,39 @@ export default function LoginScreen() {
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
         >
-          <View style={styles.logoArea}>
+          <View style={styles.hero}>
             <View style={styles.logoCircle}>
-              <Ionicons name="bus" size={36} color={colors.textInverse} />
+              <Ionicons name="bus" size={34} color={colors.textInverse} />
             </View>
             <Text style={styles.appName}>CLEVER_CH</Text>
-            <Text style={styles.appDesc}>정산 조회를 위해 로그인해 주세요.</Text>
+            <Text style={styles.appDesc}>{message("login_description", "정산 조회와 근무 기록을 위해 로그인해 주세요.")}</Text>
           </View>
 
           <View style={styles.formArea}>
             <View style={styles.fieldGroup}>
-              <Text style={styles.label}>이름</Text>
+              <Text style={styles.label}>{message("login_name_label", "이름")}</Text>
               <View style={styles.inputWrapper}>
                 <TextInput
                   style={styles.input}
-                  placeholder="이름을 입력해 주세요."
-                  placeholderTextColor={colors.textMuted}
                   value={name}
                   onChangeText={setName}
+                  placeholder={message("login_name_placeholder", "이름을 입력해 주세요")}
+                  placeholderTextColor={colors.textMuted}
                 />
               </View>
             </View>
 
             <View style={styles.fieldGroup}>
-              <Text style={styles.label}>소속 조</Text>
+              <Text style={styles.label}>{message("login_team_label", "조")}</Text>
               <TouchableOpacity
                 style={styles.inputWrapper}
+                activeOpacity={0.8}
                 onPress={() => setShowPicker(true)}
-                activeOpacity={0.7}
               >
                 <Text style={[styles.input, !teamCode && styles.placeholder]}>
-                  {teamCode ? `${teamCode}조` : "조를 선택해 주세요. (A-Z)"}
+                  {teamCode
+                    ? message("team_code_value_template", "{team_code}조", { team_code: teamCode })
+                    : message("login_team_placeholder", "조를 선택해 주세요")}
                 </Text>
                 <Ionicons
                   name="chevron-down"
@@ -127,33 +185,43 @@ export default function LoginScreen() {
             </View>
 
             <View style={styles.fieldGroup}>
-              <Text style={styles.label}>비밀번호</Text>
+              <Text style={styles.label}>{message("login_password_label", "비밀번호")}</Text>
               <View style={styles.inputWrapper}>
                 <TextInput
                   style={styles.input}
-                  placeholder="비밀번호 4자리"
-                  placeholderTextColor={colors.textMuted}
                   value={password}
-                  onChangeText={handlePasswordChange}
+                  onChangeText={(value) =>
+                    setPassword(value.replace(/\D/g, "").slice(0, 4))
+                  }
+                  placeholder={message("pin_placeholder", "4자리 숫자")}
+                  placeholderTextColor={colors.textMuted}
                   keyboardType="number-pad"
-                  maxLength={4}
                   secureTextEntry
+                  maxLength={4}
                 />
               </View>
-              <Text style={styles.helperText}>초기 비밀번호는 0000입니다.</Text>
+              <Text style={styles.helperText}>{message("login_password_helper", "기존 앱 비밀번호는 그대로 사용합니다.")}</Text>
             </View>
 
             <TouchableOpacity
-              style={[styles.button, loading && styles.buttonDisabled]}
+              style={[styles.primaryButton, loading && styles.buttonDisabled]}
+              activeOpacity={0.85}
               onPress={handleLogin}
               disabled={loading}
-              activeOpacity={0.8}
             >
               {loading ? (
                 <ActivityIndicator color={colors.textInverse} />
               ) : (
-                <Text style={styles.buttonText}>로그인</Text>
+                <Text style={styles.primaryButtonText}>{message("login_button_label", "로그인")}</Text>
               )}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.secondaryButton}
+              activeOpacity={0.8}
+              onPress={() => navigation.navigate("Signup", { mode: "new" })}
+            >
+              <Text style={styles.secondaryButtonText}>{message("signup_button_label", "회원가입")}</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -161,7 +229,7 @@ export default function LoginScreen() {
               activeOpacity={0.7}
               style={styles.privacyLink}
             >
-              <Text style={styles.privacyLinkText}>개인정보처리방침</Text>
+              <Text style={styles.privacyLinkText}>{message("privacy_policy_link_label", "개인정보처리방침")}</Text>
             </TouchableOpacity>
           </View>
         </ScrollView>
@@ -170,8 +238,8 @@ export default function LoginScreen() {
       <TeamCodePicker
         visible={showPicker}
         selected={teamCode}
-        onSelect={(code) => {
-          setTeamCode(code);
+        onSelect={(value) => {
+          setTeamCode(value);
           setShowPicker(false);
         }}
         onClose={() => setShowPicker(false)}
@@ -190,21 +258,22 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     flexGrow: 1,
-    paddingHorizontal: 24,
     justifyContent: "center",
-    gap: 32,
+    paddingHorizontal: 24,
+    paddingVertical: 32,
+    gap: 28,
   },
-  logoArea: {
+  hero: {
     alignItems: "center",
-    gap: 12,
+    gap: 10,
   },
   logoCircle: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+    width: 78,
+    height: 78,
+    borderRadius: 39,
     backgroundColor: colors.accentBlue,
-    justifyContent: "center",
     alignItems: "center",
+    justifyContent: "center",
   },
   appName: {
     ...typography.appTitle,
@@ -213,9 +282,10 @@ const styles = StyleSheet.create({
   appDesc: {
     ...typography.bodySmall,
     color: colors.textSecondary,
+    textAlign: "center",
   },
   formArea: {
-    gap: 20,
+    gap: 18,
   },
   fieldGroup: {
     gap: 8,
@@ -225,18 +295,18 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
   },
   inputWrapper: {
-    flexDirection: "row",
-    alignItems: "center",
-    height: 52,
+    minHeight: 52,
     borderRadius: 8,
     borderWidth: 1,
     borderColor: colors.borderLight,
     paddingHorizontal: 16,
+    flexDirection: "row",
+    alignItems: "center",
   },
   input: {
-    flex: 1,
     ...typography.body,
     color: colors.textPrimary,
+    flex: 1,
   },
   placeholder: {
     color: colors.textMuted,
@@ -245,19 +315,33 @@ const styles = StyleSheet.create({
     ...typography.captionSmall,
     color: colors.textSecondary,
   },
-  button: {
-    height: 56,
+  primaryButton: {
+    minHeight: 56,
     borderRadius: 8,
     backgroundColor: colors.accentBlue,
     justifyContent: "center",
     alignItems: "center",
   },
-  buttonDisabled: {
-    opacity: 0.7,
-  },
-  buttonText: {
+  primaryButtonText: {
     ...typography.sectionTitle,
     color: colors.textInverse,
+  },
+  secondaryButton: {
+    minHeight: 52,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.borderLight,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: colors.bgPrimary,
+  },
+  secondaryButtonText: {
+    ...typography.body,
+    color: colors.textPrimary,
+    fontWeight: "600",
+  },
+  buttonDisabled: {
+    opacity: 0.7,
   },
   privacyLink: {
     alignItems: "center",

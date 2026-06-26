@@ -31,6 +31,11 @@ export const IconLogout = `<svg width="20" height="20" viewBox="0 0 20 20" fill=
   <path d="M19 12H8C6.89543 12 6 11.1046 6 10V4C6 2.89543 6.89543 2 8 2H14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>`
 
+export const IconBell = `<svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <path d="M15 7.75C15 6.42392 14.4732 5.15215 13.5355 4.21447C12.5979 3.27678 11.3261 2.75 10 2.75C8.67392 2.75 7.40215 3.27678 6.46447 4.21447C5.52678 5.15215 5 6.42392 5 7.75C5 13.5833 2.5 15.25 2.5 15.25H17.5C17.5 15.25 15 13.5833 15 7.75Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M11.4417 17.25C11.2952 17.5026 11.0849 17.7122 10.8319 17.8579C10.5788 18.0036 10.2919 18.0804 10 18.0804C9.70812 18.0804 9.42117 18.0036 9.16814 17.8579C8.9151 17.7122 8.70484 17.5026 8.55835 17.25" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>`
+
 export const IconChevronDown = `<svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
   <path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>`

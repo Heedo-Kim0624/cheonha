@@ -4,16 +4,31 @@ from .models import DispatchUpload, DispatchRecord
 
 @admin.register(DispatchUpload)
 class DispatchUploadAdmin(admin.ModelAdmin):
-    list_display = ('id', 'team', 'uploaded_by', 'upload_date', 'total_rows', 'success_rows', 'error_rows', 'status')
-    list_filter = ('status', 'team', 'upload_date')
+    list_display = (
+        'id', 'team', 'uploaded_by', 'dispatch_date', 'dispatch_time', 'round_no',
+        'mor_total_boxes', 'mor_regular_crew_count', 'mor_yongcha_crew_count',
+        'upload_date', 'total_rows', 'success_rows', 'error_rows', 'status',
+    )
+    list_filter = ('status', 'team', 'dispatch_date', 'round_no', 'upload_date')
     search_fields = ('team__name', 'uploaded_by__username')
-    readonly_fields = ('upload_date', 'total_rows', 'success_rows', 'error_rows', 'created_at', 'updated_at')
+    readonly_fields = (
+        'upload_date', 'source_date', 'dispatch_date', 'dispatch_time', 'round_no',
+        'total_rows', 'success_rows', 'error_rows',
+        'mor_total_boxes', 'mor_regular_crew_count', 'mor_yongcha_crew_count',
+        'created_at', 'updated_at',
+    )
     fieldsets = (
         ('기본 정보', {
-            'fields': ('file', 'uploaded_by', 'team', 'upload_date')
+            'fields': ('file', 'original_filename', 'uploaded_by', 'team', 'upload_date')
+        }),
+        ('배차 파일명 파싱', {
+            'fields': ('source_date', 'dispatch_date', 'dispatch_time', 'round_no')
         }),
         ('통계', {
-            'fields': ('total_rows', 'success_rows', 'error_rows')
+            'fields': (
+                'total_rows', 'success_rows', 'error_rows',
+                'mor_total_boxes', 'mor_regular_crew_count', 'mor_yongcha_crew_count',
+            )
         }),
         ('상태', {
             'fields': ('status', 'note')

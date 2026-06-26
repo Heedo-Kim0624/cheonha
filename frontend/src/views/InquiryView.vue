@@ -73,7 +73,7 @@
 
           <div class="p-8 overflow-y-auto flex-1 space-y-6">
             <!-- 수정 필드들 -->
-            <div class="grid grid-cols-5 gap-4">
+            <div class="grid grid-cols-4 gap-4">
               <div class="p-5 bg-blue-50 rounded-xl">
                 <label class="block text-base text-blue-600 font-medium mb-2 whitespace-nowrap">박스수</label>
                 <input v-model.number="form.boxes" type="number" min="0"
@@ -87,11 +87,6 @@
               <div class="p-5 bg-purple-50 rounded-xl">
                 <label class="block text-base text-purple-600 font-medium mb-2 whitespace-nowrap">조정금액</label>
                 <input v-model.number="form.adjustment_amount" type="number"
-                  class="w-full px-3 py-2 bg-white rounded-lg text-right text-lg font-bold" />
-              </div>
-              <div class="p-5 bg-rose-50 rounded-xl">
-                <label class="block text-base text-rose-600 font-medium mb-2 whitespace-nowrap">기타지출</label>
-                <input v-model.number="form.other_cost" type="number" min="0"
                   class="w-full px-3 py-2 bg-white rounded-lg text-right text-lg font-bold" />
               </div>
               <div class="p-5 bg-green-50 rounded-xl">
@@ -145,12 +140,14 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, reactive } from 'vue'
+import { ref, computed, onMounted, reactive, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import AppLayout from '@/components/common/AppLayout.vue'
 import TeamFilter from '@/components/common/TeamFilter.vue'
 import { fetchInquiries, getInquiry, updateInquiry, addInquiryMessage, markInquiryRead, fetchInquiryCounts } from '@/api/inquiry'
 import client from '@/api/client'
 
+const route = useRoute()
 const statusFilter = ref('all')
 const selectedTeam = ref('')
 const inquiries = ref([])
@@ -158,7 +155,7 @@ const counts = ref({ total: 0, open: 0 })
 const loading = ref(false)
 const selected = ref(null)
 const newMessage = ref('')
-const form = reactive({ boxes: 0, pay_price: 0, is_overtime: false, adjustment_amount: 0, other_cost: 0 })
+const form = reactive({ boxes: 0, pay_price: 0, is_overtime: false, adjustment_amount: 0 })
 
 const statusFilters = [
   { key: 'all', label: '전체' },
@@ -191,6 +188,7 @@ const loadList = async () => {
 
     const cr = await fetchInquiryCounts(selectedTeam.value ? { team_name: selectedTeam.value } : {})
     counts.value = cr.data
+    await openRouteInquiry()
   } catch (e) { console.error(e); inquiries.value = [] }
   finally { loading.value = false }
 }
@@ -203,8 +201,14 @@ const openDetail = async (iq) => {
     form.pay_price = Number(r.data.pay_price || 0)
     form.is_overtime = !!r.data.is_overtime
     form.adjustment_amount = Number(r.data.adjustment_amount || 0)
-    form.other_cost = Number(r.data.other_cost || 0)
   } catch (e) { alert('조회 실패') }
+}
+
+const openRouteInquiry = async () => {
+  const id = route.query.id
+  if (!id) return
+  if (selected.value && String(selected.value.id) === String(id)) return
+  await openDetail({ id })
 }
 
 const closeDetail = () => { selected.value = null; loadList() }
@@ -214,7 +218,6 @@ const saveInquiry = async () => {
     const resp = await updateInquiry(selected.value.id, {
       boxes: form.boxes, pay_price: form.pay_price,
       is_overtime: form.is_overtime, adjustment_amount: form.adjustment_amount,
-      other_cost: form.other_cost,
     })
     const { pay_price_changed, crew_member_id } = resp.data
 
@@ -251,6 +254,10 @@ const markRead = async () => {
     selected.value = r.data
   } catch (e) { alert('처리 실패') }
 }
+
+watch(() => route.query.id, () => {
+  void openRouteInquiry()
+})
 
 onMounted(loadList)
 </script>

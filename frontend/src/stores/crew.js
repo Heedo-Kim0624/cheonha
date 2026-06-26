@@ -16,17 +16,22 @@ export const useCrewStore = defineStore('crew', () => {
   const loading = ref(false)
   const error = ref(null)
 
-  const fetchCrew = async (params = {}) => {
-    loading.value = true
-    error.value = null
+  const fetchCrew = async (params = {}, options = {}) => {
+    const silent = Boolean(options.silent)
+    if (!silent) {
+      loading.value = true
+      error.value = null
+    }
     try {
       const response = await fetchCrewMembers(params)
       crewMembers.value = response.data.results || response.data
+      return response
     } catch (err) {
       console.error('Failed to fetch crew:', err)
-      error.value = err.message
+      if (!silent) error.value = err.message
+      throw err
     } finally {
-      loading.value = false
+      if (!silent) loading.value = false
     }
   }
 
