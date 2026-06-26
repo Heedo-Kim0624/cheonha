@@ -27,7 +27,7 @@ const portalRoutes = [
   { path: '/portal/vehicle/insurance', name: 'CleverPortalVehicleInsurance', component: () => import('@/views/FleetManagementView.vue'), meta: { requiresAuth: true, adminOnly: true, fleetTab: 'insurance' } },
   { path: '/portal/vehicle/accidents', name: 'CleverPortalVehicleAccidents', component: () => import('@/views/FleetManagementView.vue'), meta: { requiresAuth: true, adminOnly: true, fleetTab: 'accidents' } },
   { path: '/portal/vehicle/upload', name: 'CleverPortalVehicleUpload', component: () => import('@/views/FleetManagementView.vue'), meta: { requiresAuth: true, adminOnly: true, fleetTab: 'upload' } },
-  { path: '/portal/vehicle/calendar', name: 'CleverPortalVehicleCalendar', component: () => import('@/views/FleetManagementView.vue'), meta: { requiresAuth: true, adminOnly: true, fleetTab: 'calendar' } },
+  { path: '/portal/vehicle/calendar', redirect: '/portal/vehicle/dashboard' },
   { path: '/portal/vehicle/pit', redirect: '/portal/pit/status' },
   { path: '/portal/vehicle/as', redirect: '/portal/pit/as' },
   { path: '/portal/pit', redirect: '/portal/pit/status' },
