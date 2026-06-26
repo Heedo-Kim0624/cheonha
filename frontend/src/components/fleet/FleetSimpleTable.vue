@@ -16,7 +16,16 @@
         <tr v-if="!rows.length">
           <td class="empty-cell" :colspan="columns.length">{{ emptyText }}</td>
         </tr>
-        <tr v-for="(row, rowIndex) in rows" v-else :key="row.id || rowIndex">
+        <tr
+          v-for="(row, rowIndex) in rows"
+          v-else
+          :key="row.id || rowIndex"
+          class="clickable-row"
+          tabindex="0"
+          @click="emit('row-click', row)"
+          @keydown.enter.prevent="emit('row-click', row)"
+          @keydown.space.prevent="emit('row-click', row)"
+        >
           <td
             v-for="column in columns"
             :key="column.key"
@@ -36,6 +45,7 @@ defineProps({
   rows: { type: Array, required: true },
   emptyText: { type: String, default: '데이터가 없습니다.' },
 })
+const emit = defineEmits(['row-click'])
 </script>
 
 <style scoped>
@@ -73,6 +83,16 @@ defineProps({
 
 .fleet-table tr:hover td {
   background: #f6f8ec;
+}
+
+.clickable-row {
+  cursor: pointer;
+}
+
+.clickable-row:focus td {
+  background: #f6f8ec;
+  outline: 2px solid #c5d941;
+  outline-offset: -2px;
 }
 
 .fleet-table .right,

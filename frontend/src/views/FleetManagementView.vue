@@ -319,7 +319,12 @@
             <p>계약 기간, 구독료, 서명 상태를 차량번호 기준으로 확인합니다.</p>
           </div>
         </div>
-        <SimpleTable :columns="subscriptionColumns" :rows="filteredSubscriptions" empty-text="구독 계약 이력이 없습니다." />
+        <SimpleTable
+          :columns="subscriptionColumns"
+          :rows="filteredSubscriptions"
+          empty-text="구독 계약 이력이 없습니다."
+          @row-click="openSubscriptionRow"
+        />
       </section>
 
       <section v-else-if="activeTab === 'returns'" class="panel">
@@ -329,7 +334,12 @@
             <p>반납 일정, 실제 반납일, 수리비 청구 이력을 확인합니다.</p>
           </div>
         </div>
-        <SimpleTable :columns="returnColumns" :rows="filteredReturns" empty-text="반납/수리비 이력이 없습니다." />
+        <SimpleTable
+          :columns="returnColumns"
+          :rows="filteredReturns"
+          empty-text="반납/수리비 이력이 없습니다."
+          @row-click="openReturnRow"
+        />
       </section>
 
       <section v-else-if="activeTab === 'insurance'" class="panel">
@@ -339,7 +349,12 @@
             <p>보험사, 증권번호, 가입 기간, 납부 상태를 관리합니다.</p>
           </div>
         </div>
-        <SimpleTable :columns="insuranceColumns" :rows="filteredInsurances" empty-text="보험 이력이 없습니다." />
+        <SimpleTable
+          :columns="insuranceColumns"
+          :rows="filteredInsurances"
+          empty-text="보험 이력이 없습니다."
+          @row-click="openInsuranceRow"
+        />
       </section>
 
       <section v-else-if="activeTab === 'accidents'" class="panel">
@@ -350,7 +365,12 @@
           </div>
           <button class="btn" type="button" @click="downloadAccidentTemplate">통합 양식 다운로드</button>
         </div>
-        <SimpleTable :columns="accidentColumns" :rows="filteredAccidents" empty-text="사고 이력이 없습니다." />
+        <SimpleTable
+          :columns="accidentColumns"
+          :rows="filteredAccidents"
+          empty-text="사고 이력이 없습니다."
+          @row-click="openAccidentRow"
+        />
       </section>
 
       <section v-else class="panel">
@@ -659,6 +679,8 @@ const filteredGroups = computed(() => {
 
 const allSubscriptions = computed(() => groups.value.flatMap((group) =>
   (group.subscriptions || []).map((item) => ({
+    __raw: item,
+    __group: group,
     plate: group.plate,
     customer: item.customer,
     period: `${item.start || '-'} ~ ${item.end || '-'}`,
@@ -671,6 +693,8 @@ const allSubscriptions = computed(() => groups.value.flatMap((group) =>
 
 const allReturns = computed(() => groups.value.flatMap((group) =>
   (group.returns || []).map((item) => ({
+    __raw: item,
+    __group: group,
     plate: group.plate,
     customer: item.customer || '-',
     scheduled: item.scheduled || '-',
@@ -683,6 +707,8 @@ const allReturns = computed(() => groups.value.flatMap((group) =>
 
 const allInsurances = computed(() => groups.value.flatMap((group) =>
   (group.insurances || []).map((item) => ({
+    __raw: item,
+    __group: group,
     plate: group.plate,
     insurer: item.insurer || '-',
     policyNo: item.policyNo || '-',
@@ -694,6 +720,8 @@ const allInsurances = computed(() => groups.value.flatMap((group) =>
 
 const allAccidents = computed(() => groups.value.flatMap((group) =>
   (group.accidents || []).map((item) => ({
+    __raw: item,
+    __group: group,
     plate: group.plate,
     driver: item.driver || '-',
     date: item.date || '-',
@@ -1409,8 +1437,38 @@ function filterRows(rows) {
   return rows.filter((row) => {
     if (statusFilter.value && row.status !== statusFilter.value) return false
     if (!q) return true
-    return Object.values(row).join(' ').toLowerCase().includes(q)
+    return Object.entries(row)
+      .filter(([key]) => !key.startsWith('__'))
+      .map(([, value]) => value)
+      .join(' ')
+      .toLowerCase()
+      .includes(q)
   })
+}
+
+function setSelectedPlateFromRow(row) {
+  const plate = row?.plate || row?.__raw?.plate || row?.__group?.plate
+  if (plate) selectedPlate.value = plate
+}
+
+function openSubscriptionRow(row) {
+  setSelectedPlateFromRow(row)
+  openSubscriptionDetail(row.__raw || row)
+}
+
+function openReturnRow(row) {
+  setSelectedPlateFromRow(row)
+  openReturnDetail(row.__raw || row)
+}
+
+function openInsuranceRow(row) {
+  setSelectedPlateFromRow(row)
+  openInsuranceDetail(row.__raw || row)
+}
+
+function openAccidentRow(row) {
+  setSelectedPlateFromRow(row)
+  openAccidentDetail(row.__raw || row)
 }
 
 function goTab(tabKey) {
