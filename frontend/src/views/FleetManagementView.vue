@@ -311,6 +311,10 @@
         </section>
       </section>
 
+      <section v-else-if="activeTab === 'calendar'" class="panel">
+        <VehicleCalendarPanel company-code="" />
+      </section>
+
       <section v-else-if="activeTab === 'subscriptions'" class="panel">
         <div class="panel-head">
           <div>
@@ -607,6 +611,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import SimpleTable from '@/components/fleet/FleetSimpleTable.vue'
 import FleetVehicleTable from '@/components/fleet/FleetVehicleTable.vue'
+import VehicleCalendarPanel from '@/components/portal/VehicleCalendarPanel.vue'
 import { useFleetSite } from '@/composables/useFleetSite'
 import {
   createFleetDocument,
@@ -633,6 +638,7 @@ import {
 const tabs = [
   { key: 'dashboard', label: '대시보드', caption: '차량 운영 요약' },
   { key: 'vehicles', label: '차량 목록', caption: '차량번호별 통합 상세' },
+  { key: 'calendar', label: '캘린더', caption: '차량 일정과 반납 불가일' },
   { key: 'subscriptions', label: '구독 전자계약', caption: '계약과 월 구독료' },
   { key: 'returns', label: '반납/수리비', caption: '반납과 청구 이력' },
   { key: 'insurance', label: '보험', caption: '보험료 납부 현황' },
@@ -643,6 +649,7 @@ const tabs = [
 const routeNames = {
   dashboard: 'CleverPortalVehicleDashboard',
   vehicles: 'CleverPortalVehicleVehicles',
+  calendar: 'CleverPortalVehicleCalendar',
   subscriptions: 'CleverPortalVehicleSubscriptions',
   returns: 'CleverPortalVehicleReturns',
   insurance: 'CleverPortalVehicleInsurance',

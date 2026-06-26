@@ -69,7 +69,7 @@ const subtabs = [
     key: 'calendar',
     label: '캘린더',
     description: '차량 일정과 반납 일정 확인',
-    to: { name: 'CleverPortalVehicleDashboard' },
+    to: { name: 'CleverPortalVehicleCalendar' },
   },
   {
     key: 'subscription',
