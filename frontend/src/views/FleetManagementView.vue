@@ -63,6 +63,10 @@
         </div>
 
         <section class="panel">
+          <VehicleCalendarPanel company-code="" />
+        </section>
+
+        <section class="panel">
           <div class="panel-head">
             <div>
               <h3>차량 운영 현황</h3>
@@ -78,9 +82,6 @@
           />
         </section>
 
-        <section class="panel">
-          <VehicleCalendarPanel company-code="" />
-        </section>
       </section>
 
       <section v-else-if="activeTab === 'vehicles'" class="content-stack">
