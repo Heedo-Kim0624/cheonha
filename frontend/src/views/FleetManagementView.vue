@@ -24,7 +24,6 @@
         </button>
       </nav>
 
-      <a class="legacy-link" :href="legacyUrl">기존 전체 기능 화면 열기</a>
     </aside>
 
     <main class="fleet-main">
@@ -382,7 +381,6 @@
         </div>
         <div class="upload-bridge">
           <button class="btn" type="button" @click="downloadAccidentTemplate">사고 이력 통합 양식 다운로드</button>
-          <a class="btn primary" :href="legacyUrl">기존 업로드 화면 열기</a>
         </div>
       </section>
 
@@ -452,6 +450,7 @@
                 <div><strong>{{ form.fileName || '계약서 파일' }}</strong><small>기존 계약 파일</small></div>
                 <button type="button" class="btn soft" @click="previewFile({ url: form.fileUrl, name: form.fileName })">미리보기</button>
                 <button type="button" class="btn" @click="downloadFile({ url: form.fileUrl, name: form.fileName })">다운로드</button>
+                <label class="inline-check"><input v-model="form.deleteFile" type="checkbox"> 계약서 삭제</label>
               </div>
             </template>
 
@@ -514,6 +513,28 @@
                 <label><span>보험 상태</span><select v-model="form.status"><option>가입중</option><option>종료</option><option>해지</option><option>대기</option></select></label>
                 <label class="full"><span>비고</span><textarea v-model="form.note"></textarea></label>
               </div>
+              <div class="repair-section">
+                <div class="panel-head no-margin">
+                  <h3>보험료 납부 이력</h3>
+                  <button type="button" class="btn primary" @click="addInsurancePayment">납부 항목 추가</button>
+                </div>
+                <div class="table-wrap">
+                  <table class="detail-table">
+                    <thead><tr><th>회차</th><th>납부 예정일</th><th>보험료</th><th>상태</th><th>메모</th><th>관리</th></tr></thead>
+                    <tbody>
+                      <tr v-for="(payment, index) in form.payments" :key="index">
+                        <td><input v-model.number="payment.installment" type="number" min="1"></td>
+                        <td><input v-model="payment.due" type="date"></td>
+                        <td><input v-model.number="payment.amount" type="number" min="0"></td>
+                        <td><select v-model="payment.status"><option>미납</option><option>납부완료</option><option>면제</option><option>취소</option></select></td>
+                        <td><input v-model="payment.note"></td>
+                        <td><button type="button" class="btn danger" @click="form.payments.splice(index, 1)">삭제</button></td>
+                      </tr>
+                      <tr v-if="!form.payments?.length"><td colspan="6" class="empty-cell">등록된 보험료 납부 이력이 없습니다.</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
               <div v-if="modal.type === 'insurance-detail'" class="modal-extra-actions">
                 <button type="button" class="btn danger" @click="removeInsurance">보험 삭제</button>
               </div>
@@ -545,6 +566,28 @@
                 <label><span>지급금액</span><input v-model.number="form.paid" type="number" min="0"></label>
                 <label class="full"><span>사고내용</span><textarea v-model="form.description"></textarea></label>
                 <label class="full"><span>보상 메모</span><textarea v-model="form.compensationNote"></textarea></label>
+              </div>
+              <div class="repair-section">
+                <div class="panel-head no-margin">
+                  <h3>보상 상세 항목</h3>
+                  <button type="button" class="btn primary" @click="addAccidentItem">보상 항목 추가</button>
+                </div>
+                <div class="table-wrap">
+                  <table class="detail-table">
+                    <thead><tr><th>지급 대상</th><th>담보</th><th>금액</th><th>상태</th><th>메모</th><th>관리</th></tr></thead>
+                    <tbody>
+                      <tr v-for="(item, index) in form.items" :key="index">
+                        <td><input v-model="item.payee"></td>
+                        <td><select v-model="item.coverage"><option>대인</option><option>대물</option><option>대인/대물</option><option>기타</option></select></td>
+                        <td><input v-model.number="item.amount" type="number" min="0"></td>
+                        <td><select v-model="item.status"><option>미지급</option><option>지급완료</option><option>보류</option><option>취소</option></select></td>
+                        <td><input v-model="item.note"></td>
+                        <td><button type="button" class="btn danger" @click="form.items.splice(index, 1)">삭제</button></td>
+                      </tr>
+                      <tr v-if="!form.items?.length"><td colspan="6" class="empty-cell">등록된 보상 상세 항목이 없습니다.</td></tr>
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </template>
 
@@ -624,9 +667,17 @@ const selectedPlate = ref('')
 
 const activeTab = computed(() => route.meta.fleetTab || 'dashboard')
 const currentTab = computed(() => tabs.find((tab) => tab.key === activeTab.value))
-const legacyUrl = computed(() => '/fleet-management/')
 const selectedGroup = computed(() => groups.value.find((group) => group.plate === selectedPlate.value))
 const companyId = computed(() => fleetPayload.value?.company?.id || '')
+
+function groupCompanyId(group) {
+  return group?.companyId || group?.company_id || companyId.value
+}
+
+function formCompanyId() {
+  const group = form.value.group || findGroupByPlate(form.value.plate)
+  return form.value.companyId || groupCompanyId(group) || groupCompanyId(selectedGroup.value)
+}
 
 const detailModes = [
   { key: 'all', label: '차량번호 전체 이력' },
@@ -871,13 +922,21 @@ function returnTotals(item) {
   }
 }
 
-function documentByType(group, type) {
+function documentByType(group, type, record = form.value.record) {
   if (!group) return null
   const docs = (group.documents || [])
     .filter((doc) => doc.type === type || doc.documentType === type || doc.document_type === type)
     .sort((a, b) => String(b.uploaded || '').localeCompare(String(a.uploaded || '')))
+  const recordId = record?.id || ''
+  const vehicleId = record?.vehicleApiId ? `VEH-${record.vehicleApiId}` : ''
+  if (recordId || vehicleId) {
+    const matched = docs.find((doc) =>
+      (recordId && doc.recordId === recordId) || (vehicleId && doc.vehicleId === vehicleId),
+    )
+    if (matched) return matched
+  }
   if (docs[0]) return docs[0]
-  if (type === 'registration_certificate') return registrationDocument(group)
+  if (type === 'registration_certificate') return registrationDocument(group, record)
   return null
 }
 
@@ -926,6 +985,7 @@ function openModal(type, title, nextForm = {}, options = {}) {
 
 function openCreateVehicle() {
   openModal('vehicle-create', '차량 추가', {
+    companyId: companyId.value,
     vehicleNumber: '',
     vin: '',
     model: '',
@@ -939,6 +999,7 @@ function openCreateVehicle() {
 function openVehicleEdit(group) {
   const record = currentRecord(group)
   openModal('vehicle-edit', '차량 정보 변경', {
+    companyId: groupCompanyId(group),
     group,
     record,
     vehicleNumber: group.plate,
@@ -961,7 +1022,7 @@ function openVehicleDelete(group) {
 }
 
 function openDocuments(group, record = currentRecord(group)) {
-  openModal('documents', '차량 관련 서류', { group, record }, {
+  openModal('documents', '차량 관련 서류', { companyId: groupCompanyId(group), group, record }, {
     caption: '차량 등록증과 보험 청약서를 종류별로 업로드, 미리보기, 다운로드, 교체합니다.',
     wide: true,
   })
@@ -984,6 +1045,7 @@ function openSubscription(group) {
     signStatus: '서명완료',
     note: '',
     file: null,
+    deleteFile: false,
   }, { submitLabel: '계약 등록', wide: true })
 }
 
@@ -1004,6 +1066,7 @@ function openSubscriptionDetail(item) {
     fileName: item.file?.name || '',
     fileUrl: item.file?.url || '',
     file: null,
+    deleteFile: false,
   }, { submitLabel: '저장', wide: true })
 }
 
@@ -1043,6 +1106,9 @@ function openInsurance(group) {
   const end = new Date()
   end.setFullYear(end.getFullYear() + 1)
   openModal('insurance', '보험 계약 등록', {
+    companyId: groupCompanyId(group),
+    group,
+    record,
     plate: group.plate,
     vehicleRecordId: record?.id || '',
     insurer: '',
@@ -1052,6 +1118,7 @@ function openInsurance(group) {
     previousRate: 0,
     currentRate: 0,
     status: '가입중',
+    payments: [],
     note: '',
   }, { submitLabel: '보험 등록', wide: true })
 }
@@ -1104,6 +1171,7 @@ function openAccidentDetail(item) {
     compensation: Number(item.compensation || 0),
     paid: Number(item.paid || 0),
     compensationNote: item.compensationNote || '',
+    items: (item.items || []).map((entry) => ({ ...entry })),
   }, { submitLabel: '저장', wide: true })
 }
 
@@ -1144,6 +1212,28 @@ function addRepairRow() {
   form.value.repairs.push({ item: '', vendor: '', cost: 0, claim: 0, payment: '청구' })
 }
 
+function addInsurancePayment() {
+  form.value.payments ||= []
+  form.value.payments.push({
+    installment: form.value.payments.length + 1,
+    due: today(),
+    amount: 0,
+    status: '미납',
+    note: '',
+  })
+}
+
+function addAccidentItem() {
+  form.value.items ||= []
+  form.value.items.push({
+    payee: '',
+    coverage: '',
+    amount: 0,
+    status: '미지급',
+    note: '',
+  })
+}
+
 function clearReturnPhoto(index) {
   Object.assign(form.value.photos[index], { name: '', url: '', mime: '' })
 }
@@ -1173,9 +1263,9 @@ async function uploadDocument(type, event) {
   const file = event.target.files?.[0]
   if (!file || !form.value.group) return
   const record = form.value.record || currentRecord(form.value.group)
-  const existing = documentByType(form.value.group, type)
+  const existing = documentByType(form.value.group, type, record)
   const body = new FormData()
-  body.append('company', companyId.value)
+  body.append('company', formCompanyId())
   body.append('vehicle_number', form.value.group.plate)
   body.append('document_type', type)
   body.append('file', file)
@@ -1199,7 +1289,7 @@ async function uploadDocument(type, event) {
 }
 
 async function removeDocument(type) {
-  const doc = documentByType(form.value.group, type)
+  const doc = documentByType(form.value.group, type, form.value.record)
   if (!doc?.apiId) {
     error.value = '삭제할 파일이 없습니다.'
     return
@@ -1248,7 +1338,7 @@ async function submitModal() {
 async function submitVehicleCreate() {
   const vehicleNumber = form.value.vehicleNumber
   const response = await createFleetVehicle({
-    company: companyId.value,
+    company: formCompanyId(),
     vehicle_number: vehicleNumber,
     vin_tid: form.value.vin,
     model: form.value.model,
@@ -1315,7 +1405,7 @@ async function submitSubscription(isUpdate) {
       body[key] = value
     }
   }
-  set('company', companyId.value)
+  set('company', formCompanyId())
   set('vehicle', refs.vehicle)
   set('vehicle_record', refs.vehicle_record)
   set('vehicle_number', form.value.plate)
@@ -1329,6 +1419,7 @@ async function submitSubscription(isUpdate) {
   set('sign_status', form.value.signStatus)
   set('note', form.value.note || '')
   if (form.value.file) set('contract_file', form.value.file)
+  if (isUpdate && form.value.deleteFile && !form.value.file) set('clear_contract_file', true)
   if (isUpdate) await updateFleetSubscription(form.value.apiId, body)
   else await createFleetSubscription(body)
   closeModal()
@@ -1343,7 +1434,7 @@ async function submitReturn(isUpdate) {
     .filter((photo) => photo.name)
     .map(({ label, name, url, mime }) => ({ label, name, url, mime }))
   const payload = {
-    company: companyId.value,
+    company: formCompanyId(),
     subscription: contract?.apiId || apiId(form.value.subscriptionId, 'SUB-'),
     vehicle: vehicleApiId(record),
     vehicle_record: recordApiId(record),
@@ -1377,8 +1468,17 @@ async function submitReturn(isUpdate) {
 
 async function submitInsurance(isUpdate) {
   const refs = payloadVehicleRefs()
+  const payments = (form.value.payments || [])
+    .map((entry, index) => ({
+      installment: Number(entry.installment || index + 1),
+      due: entry.due || '',
+      amount: Number(entry.amount || 0),
+      status: entry.status || '',
+      note: entry.note || '',
+    }))
+    .filter((entry) => entry.due || entry.amount || entry.status || entry.note)
   const payload = {
-    company: companyId.value,
+    company: formCompanyId(),
     vehicle: refs.vehicle,
     vehicle_record: refs.vehicle_record,
     vehicle_number: form.value.plate,
@@ -1389,7 +1489,7 @@ async function submitInsurance(isUpdate) {
     previous_rate: form.value.previousRate || 0,
     current_rate: form.value.currentRate || 0,
     status: form.value.status,
-    payments: form.value.payments || [],
+    payments,
     note: form.value.note || '',
   }
   if (isUpdate) await updateFleetInsurance(form.value.apiId, payload)
@@ -1400,7 +1500,7 @@ async function submitInsurance(isUpdate) {
 
 async function submitReplacement() {
   await createFleetReplacement({
-    company: companyId.value,
+    company: formCompanyId(),
     vehicle_number: form.value.vehicleNumber,
     new_vehicle_number: form.value.newVehicleNumber,
     old_end: form.value.oldEnd,
@@ -1415,6 +1515,18 @@ async function submitReplacement() {
 }
 
 async function submitAccident() {
+  const items = (form.value.items || [])
+    .map((entry) => ({
+      payee: entry.payee || '',
+      coverage: entry.coverage || '',
+      amount: Number(entry.amount || 0),
+      status: entry.status || '',
+      note: entry.note || '',
+    }))
+    .filter((entry) => entry.payee || entry.coverage || entry.amount || entry.status || entry.note)
+  const paid = items.length
+    ? items.reduce((sum, entry) => sum + Number(entry.amount || 0), 0)
+    : Number(form.value.paid || 0)
   await updateFleetAccident(form.value.apiId, {
     driver: form.value.driver,
     accident_at: toApiDateTime(form.value.date),
@@ -1425,8 +1537,9 @@ async function submitAccident() {
     personal_compensation: form.value.personalCompensation || 0,
     property_compensation: form.value.propertyCompensation || 0,
     compensation: form.value.compensation || 0,
-    paid: form.value.paid || 0,
+    paid,
     compensation_note: form.value.compensationNote || '',
+    items,
   })
   closeModal()
   await reload()
@@ -2076,6 +2189,21 @@ input {
   margin-top: 14px;
 }
 
+.inline-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #334155;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.inline-check input {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+}
+
 .doc-row strong {
   display: block;
   color: #101827;
@@ -2149,6 +2277,12 @@ input {
 
 .detail-table tbody tr:hover td {
   background: #f6f8ec;
+}
+
+.detail-table .empty-cell {
+  color: #718096;
+  text-align: center;
+  font-weight: 800;
 }
 
 .money-cell {

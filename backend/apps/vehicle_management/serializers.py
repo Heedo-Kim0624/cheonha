@@ -221,6 +221,7 @@ class FleetSubscriptionContractSerializer(serializers.ModelSerializer):
     vehicle_record_vin = serializers.CharField(source='vehicle_record.vin', read_only=True)
     contract_file_name = serializers.SerializerMethodField()
     contract_file_url = serializers.SerializerMethodField()
+    clear_contract_file = serializers.BooleanField(write_only=True, required=False)
 
     class Meta:
         model = FleetSubscriptionContract
@@ -229,7 +230,7 @@ class FleetSubscriptionContractSerializer(serializers.ModelSerializer):
             'vehicle_number_display', 'vehicle_vin', 'vehicle_record_vin', 'customer', 'contact',
             'start_date', 'end_date', 'monthly_fee', 'deposit',
             'status', 'sign_status', 'contract_file', 'contract_file_name',
-            'contract_file_url', 'note', 'created_at', 'updated_at',
+            'contract_file_url', 'clear_contract_file', 'note', 'created_at', 'updated_at',
         ]
         read_only_fields = ['created_at', 'updated_at']
 

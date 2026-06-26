@@ -892,6 +892,8 @@ def _vm_document_payload(request, document):
     return {
         'id': f'DOC-{document.id}',
         'apiId': document.id,
+        'companyId': document.company_id,
+        'companyCode': document.company.code if document.company_id and getattr(document, 'company', None) else '',
         'type': document.document_type,
         'vehicleId': f'VEH-{document.vehicle_id}' if document.vehicle_id else '',
         'recordId': f'FVR-{document.vehicle_record_id}' if document.vehicle_record_id else '',
@@ -927,6 +929,8 @@ def _fleet_record_payload(record, request=None):
     return {
         'id': f'FVR-{record.id}',
         'apiId': record.id,
+        'companyId': record.company_id,
+        'companyCode': record.company.code if record.company_id and getattr(record, 'company', None) else '',
         'vehicleApiId': record.vehicle_id,
         'vin': record.vin or '',
         'model': record.model or '',
@@ -948,6 +952,8 @@ def _vehicle_fallback_record(vehicle, request=None):
     return {
         'id': f'VEH-{vehicle.id}',
         'apiId': vehicle.id,
+        'companyId': vehicle.company_id,
+        'companyCode': vehicle.company.code if vehicle.company_id and getattr(vehicle, 'company', None) else '',
         'vehicleApiId': vehicle.id,
         'vin': vehicle.vin_tid or '',
         'model': vehicle.model or '',
@@ -1004,30 +1010,44 @@ class FleetSiteViewSet(viewsets.ViewSet):
     permission_classes = [IsAuthenticated]
 
     def list(self, request):
-        company_code = request.query_params.get('company') or 'CHEONHA'
-        company = Company.objects.filter(code=company_code).first()
-        if not company:
+        company_code = request.query_params.get('company')
+        company_qs = Company.objects.filter(is_active=True).order_by('sort_order', 'id')
+        if company_code:
+            company_qs = company_qs.filter(code=company_code)
+        companies = list(company_qs)
+        if not companies:
             return Response({'detail': 'Unknown vehicle company.'}, status=404)
 
+        company_ids = [company.id for company in companies]
+        company_by_id = {company.id: company for company in companies}
+        default_company = (
+            next((company for company in companies if company.code == 'CHEONHA'), None)
+            or companies[0]
+        )
+
         vehicles = list(
-            Vehicle.objects.filter(company=company, is_active=True)
+            Vehicle.objects.filter(company_id__in=company_ids, is_active=True)
+            .select_related('company')
             .order_by('vehicle_number', 'id')
         )
         fleet_records = list(
-            FleetVehicleRecord.objects.filter(company=company)
-            .select_related('vehicle')
+            FleetVehicleRecord.objects.filter(company_id__in=company_ids)
+            .select_related('vehicle', 'company')
             .order_by('vehicle_number', 'start_date', 'id')
         )
         groups = {}
 
-        def ensure_group(vehicle_number, vehicle=None):
+        def ensure_group(vehicle_number, vehicle=None, company_obj=None):
             if not vehicle_number:
                 vehicle_number = '-'
             if vehicle_number not in groups:
-                owner = company.name
+                company_ref = company_obj or getattr(vehicle, 'company', None) or default_company
                 groups[vehicle_number] = {
                     'plate': vehicle_number,
-                    'owner': owner,
+                    'owner': company_ref.name,
+                    'companyId': company_ref.id,
+                    'companyCode': company_ref.code,
+                    'companyName': company_ref.name,
                     'records': [],
                     'documents': [],
                     'subscriptions': [],
@@ -1038,16 +1058,16 @@ class FleetSiteViewSet(viewsets.ViewSet):
             return groups[vehicle_number]
 
         for record in fleet_records:
-            group = ensure_group(record.vehicle_number, record.vehicle)
+            group = ensure_group(record.vehicle_number, record.vehicle, record.company)
             group['records'].append(_fleet_record_payload(record, request))
 
         for vehicle in vehicles:
-            group = ensure_group(vehicle.vehicle_number, vehicle)
+            group = ensure_group(vehicle.vehicle_number, vehicle, vehicle.company)
             if not group['records']:
                 group['records'].append(_vehicle_fallback_record(vehicle, request))
 
-        for document in FleetVehicleDocument.objects.filter(company=company).select_related('vehicle', 'vehicle_record'):
-            group = ensure_group(document.vehicle_number, document.vehicle)
+        for document in FleetVehicleDocument.objects.filter(company_id__in=company_ids).select_related('vehicle', 'vehicle_record', 'company'):
+            group = ensure_group(document.vehicle_number, document.vehicle, document.company)
             group['documents'].append(_vm_document_payload(request, document))
 
         def resolve_record(group, obj, date_value=None):
@@ -1060,14 +1080,16 @@ class FleetSiteViewSet(viewsets.ViewSet):
                 return _record_for_date(candidates or group['records'], date_value)
             return _record_for_date(group['records'], date_value)
 
-        for contract in FleetSubscriptionContract.objects.filter(company=company).select_related('vehicle', 'vehicle_record'):
+        for contract in FleetSubscriptionContract.objects.filter(company_id__in=company_ids).select_related('vehicle', 'vehicle_record', 'company'):
             vehicle = contract.vehicle
-            group = ensure_group(contract.vehicle_number, vehicle)
+            group = ensure_group(contract.vehicle_number, vehicle, contract.company)
             record = resolve_record(group, contract, _vm_date(contract.start_date))
             vin = record.get('vin') if record else (vehicle.vin_tid if vehicle else '')
             group['subscriptions'].append({
                 'id': f'SUB-{contract.id}',
                 'apiId': contract.id,
+                'companyId': contract.company_id,
+                'companyCode': contract.company.code if contract.company_id else '',
                 'vehicleId': record.get('id') if record else (f'VEH-{vehicle.id}' if vehicle else ''),
                 'vin': vin,
                 'plate': contract.vehicle_number,
@@ -1083,13 +1105,15 @@ class FleetSiteViewSet(viewsets.ViewSet):
                 'note': contract.note,
             })
 
-        for record in FleetReturnRecord.objects.filter(company=company).select_related('vehicle', 'vehicle_record', 'subscription'):
+        for record in FleetReturnRecord.objects.filter(company_id__in=company_ids).select_related('vehicle', 'vehicle_record', 'subscription', 'company'):
             vehicle = record.vehicle
-            group = ensure_group(record.vehicle_number, vehicle)
+            group = ensure_group(record.vehicle_number, vehicle, record.company)
             vehicle_record = resolve_record(group, record, _vm_date(record.actual_at.date() if record.actual_at else record.scheduled_at.date()))
             group['returns'].append({
                 'id': f'RET-{record.id}',
                 'apiId': record.id,
+                'companyId': record.company_id,
+                'companyCode': record.company.code if record.company_id else '',
                 'subscriptionId': f'SUB-{record.subscription_id}' if record.subscription_id else '',
                 'vehicleId': vehicle_record.get('id') if vehicle_record else (f'VEH-{vehicle.id}' if vehicle else ''),
                 'plate': record.vehicle_number,
@@ -1104,13 +1128,15 @@ class FleetSiteViewSet(viewsets.ViewSet):
                 'repairs': record.repairs or [],
             })
 
-        for policy in FleetInsurancePolicy.objects.filter(company=company).select_related('vehicle', 'vehicle_record'):
+        for policy in FleetInsurancePolicy.objects.filter(company_id__in=company_ids).select_related('vehicle', 'vehicle_record', 'company'):
             vehicle = policy.vehicle
-            group = ensure_group(policy.vehicle_number, vehicle)
+            group = ensure_group(policy.vehicle_number, vehicle, policy.company)
             record = resolve_record(group, policy, _vm_date(policy.start_date))
             group['insurances'].append({
                 'id': f'INS-{policy.id}',
                 'apiId': policy.id,
+                'companyId': policy.company_id,
+                'companyCode': policy.company.code if policy.company_id else '',
                 'vehicleId': record.get('id') if record else (f'VEH-{vehicle.id}' if vehicle else ''),
                 'vin': record.get('vin') if record else (vehicle.vin_tid if vehicle else ''),
                 'plate': policy.vehicle_number,
@@ -1125,13 +1151,15 @@ class FleetSiteViewSet(viewsets.ViewSet):
                 'note': policy.note,
             })
 
-        for accident in FleetAccidentCase.objects.filter(company=company).select_related('vehicle', 'vehicle_record'):
+        for accident in FleetAccidentCase.objects.filter(company_id__in=company_ids).select_related('vehicle', 'vehicle_record', 'company'):
             vehicle = accident.vehicle
-            group = ensure_group(accident.vehicle_number, vehicle)
+            group = ensure_group(accident.vehicle_number, vehicle, accident.company)
             record = resolve_record(group, accident, _vm_date(accident.accident_at.date()))
             group['accidents'].append({
                 'id': f'ACC-{accident.id}',
                 'apiId': accident.id,
+                'companyId': accident.company_id,
+                'companyCode': accident.company.code if accident.company_id else '',
                 'sourceKey': accident.source_key,
                 'vehicleId': record.get('id') if record else (f'VEH-{vehicle.id}' if vehicle else ''),
                 'vin': accident.vehicle_vin or (record.get('vin') if record else (vehicle.vin_tid if vehicle else '')),
@@ -1157,7 +1185,11 @@ class FleetSiteViewSet(viewsets.ViewSet):
                 group['records'].append(_orphan_history_record(group['plate']))
 
         return Response({
-            'company': {'id': company.id, 'code': company.code, 'name': company.name},
+            'company': {'id': default_company.id, 'code': default_company.code, 'name': default_company.name},
+            'companies': [
+                {'id': company.id, 'code': company.code, 'name': company.name}
+                for company in companies
+            ],
             'groups': list(groups.values()),
         })
 
@@ -1510,8 +1542,14 @@ class FleetSubscriptionContractViewSet(CompanyScopedMixin, FleetModelCreateMixin
         )
 
     def perform_update(self, serializer):
+        clear_contract_file = serializer.validated_data.pop('clear_contract_file', False)
         self._validate_single_active_contract(serializer, self.get_object())
-        serializer.save()
+        instance = serializer.save()
+        if clear_contract_file and not self.request.FILES.get('contract_file'):
+            if instance.contract_file:
+                instance.contract_file.delete(save=False)
+            instance.contract_file = ''
+            instance.save(update_fields=['contract_file', 'updated_at'])
 
 
 class FleetReturnRecordViewSet(CompanyScopedMixin, FleetModelCreateMixin, viewsets.ModelViewSet):
