@@ -1338,7 +1338,6 @@ function renderFleetMarkers() {
   if (!fleetMap || !fleetMarkerLayer || !fleetMapOl) return
   const source = fleetMarkerLayer.getSource()
   source.clear()
-  const extent = fleetMapOl.extent.createEmpty()
   evdashLocatedGroups.value.forEach((group) => {
     const loc = group.evdash.location || {}
     const lon = Number(loc.longitude)
@@ -1362,20 +1361,32 @@ function renderFleetMarkers() {
       }),
     }))
     source.addFeature(marker)
-    extendFleetMapExtent(extent, coord)
   })
-  fleetMap.updateSize()
-  if (!fleetMapOl.extent.isEmpty(extent)) {
-    fleetMap.getView().fit(extent, { padding: [34, 34, 34, 34], maxZoom: 15 })
-  }
-  requestAnimationFrame(() => fleetMap?.updateSize?.())
+  zoomFleetMapToMarkerLayer()
+  requestAnimationFrame(() => zoomFleetMapToMarkerLayer())
+  window.setTimeout(() => zoomFleetMapToMarkerLayer(), 250)
 }
 
-function extendFleetMapExtent(extent, coord) {
-  extent[0] = Math.min(extent[0], coord[0])
-  extent[1] = Math.min(extent[1], coord[1])
-  extent[2] = Math.max(extent[2], coord[0])
-  extent[3] = Math.max(extent[3], coord[1])
+function zoomFleetMapToMarkerLayer() {
+  if (!fleetMap || !fleetMarkerLayer || !fleetMapOl) return
+  const source = fleetMarkerLayer.getSource()
+  const extent = source.getExtent()
+  if (!source.getFeatures().length || fleetMapOl.extent.isEmpty(extent)) return
+
+  fleetMap.updateSize()
+  const view = fleetMap.getView()
+  const width = fleetMapOl.extent.getWidth(extent)
+  const height = fleetMapOl.extent.getHeight(extent)
+  if (width === 0 && height === 0) {
+    view.setCenter(fleetMapOl.extent.getCenter(extent))
+    view.setZoom(15)
+    return
+  }
+  view.fit(extent, {
+    padding: [44, 44, 44, 44],
+    maxZoom: 15,
+    duration: 250,
+  })
 }
 
 function documentByType(group, type, record = form.value.record) {
