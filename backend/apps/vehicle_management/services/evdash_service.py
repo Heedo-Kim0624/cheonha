@@ -202,6 +202,19 @@ def _latest_row(conn, vehicle_id):
     return dict(row) if row else None
 
 
+def _latest_rows(conn, vehicle_ids):
+    vehicle_ids = [item for item in vehicle_ids if item]
+    if not vehicle_ids:
+        return {}
+    with conn.cursor() as cur:
+        cur.execute(
+            f'SELECT * FROM {EVDASH_LATEST_VIEW} WHERE vehicle_id = ANY(%s)',
+            [vehicle_ids],
+        )
+        rows = cur.fetchall()
+    return {row.get('vehicle_id'): dict(row) for row in rows}
+
+
 def _fleet_stats(conn, fleet_id):
     if not fleet_id:
         return None
@@ -267,6 +280,199 @@ def _build_status_cards(vehicle_row, latest_row):
         {'key': 'temperature', 'label': '현재온도', 'value': _format_number(latest.get('current_temp') or (vehicle_row or {}).get('latest_current_temp'), '°C')},
         {'key': 'parking_brake', 'label': '주차브레이크', 'value': '체결' if parking_brake else ('해제' if parking_brake is not None else '-')},
     ]
+
+
+def _has_meaningful_error_value(value):
+    if value in (None, ''):
+        return False
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    text = str(value).strip()
+    if not text:
+        return False
+    return text.lower() not in {'0', 'false', 'none', 'null', 'normal', 'ok', 'no_error', 'no error'}
+
+
+def _detect_errors(*rows):
+    tokens = ('error', 'fault', 'dtc', 'diagnostic', 'warning', 'alarm', 'fail')
+    found = []
+    for row in rows:
+        if not row:
+            continue
+        for key, value in dict(row).items():
+            lower = str(key).lower()
+            if any(token in lower for token in tokens) and _has_meaningful_error_value(value):
+                found.append({'field': key, 'value': str(value)})
+    return {
+        'has_error': bool(found),
+        'items': found[:12],
+        'count': len(found),
+    }
+
+
+def _vehicle_match_params(vehicle):
+    plate = str(getattr(vehicle, 'vehicle_number', '') or '').strip()
+    plate_short = str(getattr(vehicle, 'vehicle_number_short', '') or '').strip()
+    tid = str(getattr(vehicle, 'vin_tid', '') or '').strip()
+    hgi = str(getattr(vehicle, 'hgi', '') or '').strip()
+    digits_short = _digits(plate)[-4:] if plate else ''
+    return {
+        'plate': plate,
+        'plate_short': plate_short or digits_short,
+        'digits_short': digits_short,
+        'tid': tid,
+        'hgi': hgi,
+    }
+
+
+def _match_score(row, params):
+    if params['plate'] and row.get('plate_number') == params['plate']:
+        return 0, 'plate_number'
+    if params['tid'] and row.get('tid') == params['tid']:
+        return 1, 'tid'
+    if params['plate_short'] and row.get('plate_short') == params['plate_short']:
+        return 2, 'plate_short'
+    if params['digits_short'] and row.get('plate_short') == params['digits_short']:
+        return 3, 'plate_short'
+    if params['hgi'] and row.get('nickname') == params['hgi']:
+        return 4, 'nickname'
+    return 99, ''
+
+
+def _sort_ts(value):
+    if isinstance(value, datetime):
+        return value.timestamp()
+    if hasattr(value, 'timestamp'):
+        try:
+            return value.timestamp()
+        except Exception:
+            return 0
+    return 0
+
+
+def _fleet_vehicle_rows(conn, vehicles):
+    params_by_plate = {
+        str(getattr(vehicle, 'vehicle_number', '') or '').strip(): _vehicle_match_params(vehicle)
+        for vehicle in vehicles
+    }
+    plates = sorted({p['plate'] for p in params_by_plate.values() if p['plate']})
+    shorts = sorted({
+        value
+        for p in params_by_plate.values()
+        for value in (p['plate_short'], p['digits_short'])
+        if value
+    })
+    tids = sorted({p['tid'] for p in params_by_plate.values() if p['tid']})
+    hgis = sorted({p['hgi'] for p in params_by_plate.values() if p['hgi']})
+    if not any((plates, shorts, tids, hgis)):
+        return {}
+
+    with conn.cursor() as cur:
+        cur.execute(
+            f"""
+            SELECT *
+            FROM {EVDASH_LIST_VIEW}
+            WHERE plate_number = ANY(%(plates)s)
+               OR plate_short = ANY(%(shorts)s)
+               OR tid = ANY(%(tids)s)
+               OR nickname = ANY(%(hgis)s)
+            """,
+            {'plates': plates, 'shorts': shorts, 'tids': tids, 'hgis': hgis},
+        )
+        rows = [dict(row) for row in cur.fetchall()]
+
+    matched = {}
+    for plate, match_params in params_by_plate.items():
+        candidates = []
+        for row in rows:
+            score, method = _match_score(row, match_params)
+            if score < 99:
+                candidates.append((score, _sort_ts(row.get('last_seen_at')), method, row))
+        if candidates:
+            candidates.sort(key=lambda item: (item[0], item[1]), reverse=False)
+            # Same score can have multiple historical fleet rows. Prefer the newest last_seen_at.
+            best_score = candidates[0][0]
+            best = max([item for item in candidates if item[0] == best_score], key=lambda item: item[1])
+            matched[plate] = (best[3], best[2])
+    return matched
+
+
+def get_fleet_evdash(vehicles) -> dict:
+    vehicles = list(vehicles or [])
+    if not vehicles:
+        return {}
+
+    ttl = _cache_ttl()
+    cache_seed = '|'.join(
+        f'{getattr(vehicle, "id", "")}:{getattr(vehicle, "vehicle_number", "")}:{getattr(vehicle, "updated_at", "")}'
+        for vehicle in vehicles
+    )
+    cache_key = f'evdash_fleet_{hashlib.sha1(cache_seed.encode("utf-8")).hexdigest()}'
+    if ttl:
+        cached = cache.get(cache_key)
+        if cached:
+            return cached
+
+    if not is_configured():
+        return {
+            str(getattr(vehicle, 'vehicle_number', '') or ''): {
+                'configured': False,
+                'matched': False,
+                'detail': 'EVDASH_DB_* 환경변수가 설정되지 않았습니다.',
+                'location': {'has_location': False, 'latitude': None, 'longitude': None},
+                'summary': {'observed_at': None, 'age_seconds': None, 'online': None, 'online_label': '미수신', 'tone': 'slate'},
+                'errors': {'has_error': False, 'items': [], 'count': 0},
+            }
+            for vehicle in vehicles
+        }
+
+    try:
+        with _connect() as conn:
+            rows_by_plate = _fleet_vehicle_rows(conn, vehicles)
+            latest_by_id = _latest_rows(conn, [row.get('vehicle_id') for row, _method in rows_by_plate.values()])
+            data = {}
+            for vehicle in vehicles:
+                plate = str(getattr(vehicle, 'vehicle_number', '') or '').strip()
+                vehicle_row, match_method = rows_by_plate.get(plate, (None, ''))
+                if not vehicle_row:
+                    data[plate] = {
+                        'configured': True,
+                        'matched': False,
+                        'detail': 'EV Dashboard 차량 목록에서 일치하는 차량을 찾지 못했습니다.',
+                        'location': {'has_location': False, 'latitude': None, 'longitude': None},
+                        'summary': {'observed_at': None, 'age_seconds': None, 'online': None, 'online_label': '미수신', 'tone': 'slate'},
+                        'errors': {'has_error': False, 'items': [], 'count': 0},
+                    }
+                    continue
+                latest_row = latest_by_id.get(vehicle_row.get('vehicle_id'))
+                data[plate] = {
+                    'configured': True,
+                    'matched': True,
+                    'match_method': match_method,
+                    'vehicle': _json_row(vehicle_row),
+                    'latest': _json_row(latest_row),
+                    'location': _location_from_rows(vehicle_row, latest_row),
+                    'summary': _build_summary(vehicle_row, latest_row),
+                    'errors': _detect_errors(vehicle_row, latest_row),
+                }
+    except Exception as exc:
+        data = {
+            str(getattr(vehicle, 'vehicle_number', '') or ''): {
+                'configured': True,
+                'matched': False,
+                'detail': f'EV Dashboard 조회 실패: {exc.__class__.__name__}',
+                'location': {'has_location': False, 'latitude': None, 'longitude': None},
+                'summary': {'observed_at': None, 'age_seconds': None, 'online': None, 'online_label': '미수신', 'tone': 'slate'},
+                'errors': {'has_error': False, 'items': [], 'count': 0},
+            }
+            for vehicle in vehicles
+        }
+
+    if ttl:
+        cache.set(cache_key, data, ttl)
+    return data
 
 
 def get_vehicle_evdash(vehicle) -> dict:

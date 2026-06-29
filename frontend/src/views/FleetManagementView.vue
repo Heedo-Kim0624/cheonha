@@ -62,8 +62,68 @@
           </button>
         </div>
 
-        <section class="panel">
-          <VehicleCalendarPanel company-code="" />
+        <section class="dashboard-map-calendar">
+          <section class="panel fleet-map-panel">
+            <div class="panel-head">
+              <div>
+                <h3>실시간 차량 위치</h3>
+                <p>EV Dashboard 위치 데이터가 있는 차량을 지도에 표시합니다.</p>
+              </div>
+              <div class="map-toggle-group">
+                <button
+                  type="button"
+                  :class="{ active: fleetMapListMode === 'missing' }"
+                  @click="toggleFleetMapList('missing')"
+                >
+                  2일 미수신 {{ evdashNoRecentGroups.length }}대
+                </button>
+                <button
+                  type="button"
+                  :class="{ active: fleetMapListMode === 'errors' }"
+                  @click="toggleFleetMapList('errors')"
+                >
+                  에러코드 {{ evdashErrorGroups.length }}대
+                </button>
+              </div>
+            </div>
+
+            <div class="fleet-map-shell">
+              <div :id="fleetMapId" ref="fleetMapEl" class="fleet-map-canvas"></div>
+              <div v-if="fleetMapError" class="fleet-map-overlay error">{{ fleetMapError }}</div>
+              <div v-else-if="!evdashLocatedGroups.length" class="fleet-map-overlay">
+                지도에 표시할 위치 데이터가 없습니다.
+              </div>
+            </div>
+
+            <div class="map-summary-row">
+              <span>지도 표시 {{ evdashLocatedGroups.length }}대</span>
+              <span>최근 2일 미수신 {{ evdashNoRecentGroups.length }}대</span>
+              <span>에러코드 {{ evdashErrorGroups.length }}대</span>
+            </div>
+
+            <div v-if="fleetMapListMode" class="fleet-map-list">
+              <div class="subpanel-head compact">
+                <h4>{{ fleetMapListTitle }}</h4>
+                <span>{{ fleetMapListRows.length }}대</span>
+              </div>
+              <button
+                v-for="group in fleetMapListRows"
+                :key="group.plate"
+                type="button"
+                class="fleet-map-list-row"
+                @click="selectGroup(group)"
+              >
+                <strong>{{ group.plate }}</strong>
+                <span>{{ currentRecord(group)?.unitNumber || currentRecord(group)?.hgi || currentRecord(group)?.model || '-' }}</span>
+                <small>{{ fleetMapListMode === 'errors' ? evdashErrorText(group) : evdashLastSeenText(group) }}</small>
+              </button>
+              <p v-if="!fleetMapListRows.length" class="empty-note">해당 차량이 없습니다.</p>
+            </div>
+          </section>
+
+          <section class="panel fleet-calendar-panel">
+            <VehicleCalendarPanel company-code="" />
+          </section>
         </section>
 
         <section class="panel accident-dashboard">
@@ -713,12 +773,13 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import SimpleTable from '@/components/fleet/FleetSimpleTable.vue'
 import FleetVehicleTable from '@/components/fleet/FleetVehicleTable.vue'
 import VehicleCalendarPanel from '@/components/portal/VehicleCalendarPanel.vue'
 import { useFleetSite } from '@/composables/useFleetSite'
+import { loadVWorld } from '@/utils/vworld'
 import {
   createFleetDocument,
   createFleetInsurance,
@@ -775,6 +836,15 @@ const {
 const search = ref('')
 const statusFilter = ref('')
 const selectedPlate = ref('')
+const fleetMapEl = ref(null)
+const fleetMapId = 'fleet-dashboard-map'
+const fleetMapError = ref('')
+const fleetMapListMode = ref('')
+
+let fleetMap = null
+let fleetMapOl = null
+let fleetMarkerLayer = null
+let fleetMapResizeObserver = null
 
 const activeTab = computed(() => route.meta.fleetTab || 'dashboard')
 const currentTab = computed(() => tabs.find((tab) => tab.key === activeTab.value))
@@ -839,6 +909,28 @@ const filteredGroups = computed(() => {
     return haystack.includes(q)
   })
 })
+
+const evdashLocatedGroups = computed(() => groups.value.filter((group) => {
+  const loc = group?.evdash?.location || {}
+  return loc.has_location && Number.isFinite(Number(loc.latitude)) && Number.isFinite(Number(loc.longitude))
+}))
+
+const evdashNoRecentGroups = computed(() => groups.value.filter((group) => {
+  const evdash = group?.evdash || {}
+  const observedAt = evdashObservedAt(group)
+  if (!evdash.matched || !observedAt) return true
+  return Date.now() - observedAt.getTime() > 2 * 24 * 60 * 60 * 1000
+}))
+
+const evdashErrorGroups = computed(() => groups.value.filter((group) => group?.evdash?.errors?.has_error))
+
+const fleetMapListTitle = computed(() => (
+  fleetMapListMode.value === 'errors' ? '에러코드 발생 차량' : '최근 2일 미수신 차량'
+))
+
+const fleetMapListRows = computed(() => (
+  fleetMapListMode.value === 'errors' ? evdashErrorGroups.value : evdashNoRecentGroups.value
+))
 
 const allSubscriptions = computed(() => groups.value.flatMap((group) =>
   (group.subscriptions || []).map((item) => ({
@@ -1156,6 +1248,129 @@ function accidentMonth(value) {
 function isOpenAccident(item) {
   const status = String(item?.status || '').trim().toLowerCase()
   return !status || status.includes('진행') || status.includes('미지급') || status.includes('open') || status.includes('pending')
+}
+
+function evdashObservedAt(group) {
+  const raw = group?.evdash?.summary?.observed_at
+    || group?.evdash?.latest?.observed_at
+    || group?.evdash?.vehicle?.last_seen_at
+  if (!raw) return null
+  const parsed = new Date(raw)
+  return Number.isNaN(parsed.getTime()) ? null : parsed
+}
+
+function evdashLastSeenText(group) {
+  const observedAt = evdashObservedAt(group)
+  if (!group?.evdash?.matched) return group?.evdash?.detail || 'EV Dashboard 매칭 없음'
+  if (!observedAt) return '수신시각 없음'
+  return `마지막 수신 ${datetime(observedAt)}`
+}
+
+function evdashErrorText(group) {
+  const items = group?.evdash?.errors?.items || []
+  if (!items.length) return '에러 상세 없음'
+  return items.slice(0, 3).map((item) => `${item.field}: ${item.value}`).join(' / ')
+}
+
+function toggleFleetMapList(mode) {
+  fleetMapListMode.value = fleetMapListMode.value === mode ? '' : mode
+}
+
+function resetFleetMap() {
+  try {
+    fleetMapResizeObserver?.disconnect?.()
+    fleetMap?.setTarget?.(null)
+  } catch {
+    // VWorld cleanup can throw when the target element is already gone.
+  }
+  fleetMap = null
+  fleetMapOl = null
+  fleetMarkerLayer = null
+  fleetMapResizeObserver = null
+}
+
+async function ensureFleetMap() {
+  if (activeTab.value !== 'dashboard' || !fleetMapEl.value) return
+  if (!evdashLocatedGroups.value.length) {
+    resetFleetMap()
+    return
+  }
+  try {
+    const { vw, ol } = await loadVWorld()
+    fleetMapOl = ol
+    if (!fleetMap) {
+      fleetMap = new vw.ol3.Map(fleetMapId, {
+        basemapType: vw.ol3.BasemapType.GRAPHIC,
+        controlDensity: vw.ol3.DensityType.EMPTY,
+        interactionDensity: vw.ol3.DensityType.BASIC,
+        controlsAutoArrange: true,
+        homePosition: vw.ol3.CameraPosition,
+        initPosition: vw.ol3.CameraPosition,
+      })
+      fleetMarkerLayer = new ol.layer.Vector({ source: new ol.source.Vector(), zIndex: 10 })
+      fleetMap.addLayer(fleetMarkerLayer)
+      fleetMap.on('click', (event) => {
+        let selected = null
+        fleetMap.forEachFeatureAtPixel(event.pixel, (feature) => {
+          selected = feature.get('group')
+          return true
+        })
+        if (selected) selectGroup(selected)
+      })
+      if (typeof ResizeObserver !== 'undefined') {
+        fleetMapResizeObserver = new ResizeObserver(() => fleetMap?.updateSize?.())
+        fleetMapResizeObserver.observe(fleetMapEl.value)
+      }
+    }
+    renderFleetMarkers()
+    fleetMapError.value = ''
+  } catch (err) {
+    fleetMapError.value = err?.message || '지도 로드에 실패했습니다.'
+  }
+}
+
+function renderFleetMarkers() {
+  if (!fleetMap || !fleetMarkerLayer || !fleetMapOl) return
+  const source = fleetMarkerLayer.getSource()
+  source.clear()
+  const extent = fleetMapOl.extent.createEmpty()
+  evdashLocatedGroups.value.forEach((group) => {
+    const loc = group.evdash.location || {}
+    const lon = Number(loc.longitude)
+    const lat = Number(loc.latitude)
+    if (!Number.isFinite(lon) || !Number.isFinite(lat)) return
+    const coord = fleetMapOl.proj.fromLonLat([lon, lat])
+    const marker = new fleetMapOl.Feature({ geometry: new fleetMapOl.geom.Point(coord) })
+    marker.set('group', group)
+    marker.setStyle(new fleetMapOl.style.Style({
+      image: new fleetMapOl.style.Circle({
+        radius: group.evdash?.errors?.has_error ? 9 : 7,
+        fill: new fleetMapOl.style.Fill({ color: group.evdash?.errors?.has_error ? '#dc2626' : '#4f63f6' }),
+        stroke: new fleetMapOl.style.Stroke({ color: '#ffffff', width: 3 }),
+      }),
+      text: new fleetMapOl.style.Text({
+        text: group.plate,
+        offsetY: -18,
+        font: '700 12px sans-serif',
+        fill: new fleetMapOl.style.Fill({ color: '#101827' }),
+        stroke: new fleetMapOl.style.Stroke({ color: '#ffffff', width: 4 }),
+      }),
+    }))
+    source.addFeature(marker)
+    extendFleetMapExtent(extent, coord)
+  })
+  fleetMap.updateSize()
+  if (!fleetMapOl.extent.isEmpty(extent)) {
+    fleetMap.getView().fit(extent, { padding: [34, 34, 34, 34], maxZoom: 15 })
+  }
+  requestAnimationFrame(() => fleetMap?.updateSize?.())
+}
+
+function extendFleetMapExtent(extent, coord) {
+  extent[0] = Math.min(extent[0], coord[0])
+  extent[1] = Math.min(extent[1], coord[1])
+  extent[2] = Math.max(extent[2], coord[0])
+  extent[3] = Math.max(extent[3], coord[1])
 }
 
 function documentByType(group, type, record = form.value.record) {
@@ -1960,6 +2175,17 @@ async function downloadAccidentTemplate() {
 
 onMounted(async () => {
   await reload()
+  await nextTick()
+  await ensureFleetMap()
+})
+
+watch([activeTab, evdashLocatedGroups], async () => {
+  await nextTick()
+  await ensureFleetMap()
+}, { deep: true })
+
+onBeforeUnmount(() => {
+  resetFleetMap()
 })
 </script>
 
@@ -2152,6 +2378,140 @@ input {
   display: block;
   margin: 8px 0 6px;
   font-size: 26px;
+}
+
+.dashboard-map-calendar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 18px;
+  align-items: stretch;
+}
+
+.fleet-map-panel,
+.fleet-calendar-panel {
+  min-width: 0;
+}
+
+.fleet-map-panel {
+  display: flex;
+  flex-direction: column;
+}
+
+.map-toggle-group {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.map-toggle-group button {
+  border: 1px solid #d7deea;
+  border-radius: 999px;
+  background: #f7f9fc;
+  color: #334155;
+  padding: 9px 12px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.map-toggle-group button.active {
+  border-color: #c5d941;
+  background: #eff8b7;
+  color: #101827;
+}
+
+.fleet-map-shell {
+  position: relative;
+  overflow: hidden;
+  min-height: 420px;
+  border: 1px solid #e4e8f0;
+  border-radius: 14px;
+  background: #eef3f8;
+}
+
+.fleet-map-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.fleet-map-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: grid;
+  place-items: center;
+  background: rgba(255, 255, 255, .86);
+  color: #667085;
+  font-weight: 900;
+  text-align: center;
+  padding: 24px;
+}
+
+.fleet-map-overlay.error {
+  color: #b91c1c;
+}
+
+.map-summary-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.map-summary-row span {
+  border-radius: 999px;
+  background: #f7f9fc;
+  color: #667085;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.fleet-map-list {
+  margin-top: 12px;
+  border: 1px solid #e4e8f0;
+  border-radius: 14px;
+  padding: 12px;
+  background: #fff;
+}
+
+.subpanel-head.compact {
+  margin-bottom: 8px;
+}
+
+.fleet-map-list-row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(110px, .8fr) minmax(90px, .7fr) minmax(0, 1.5fr);
+  gap: 10px;
+  align-items: center;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: #101827;
+  padding: 9px 10px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.fleet-map-list-row:hover {
+  background: #f7f9fc;
+}
+
+.fleet-map-list-row span,
+.fleet-map-list-row small {
+  color: #667085;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.empty-note {
+  margin: 8px 0 0;
+  color: #667085;
+  font-weight: 800;
 }
 
 .panel,
@@ -2909,6 +3269,7 @@ textarea,
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .dashboard-map-calendar,
   .accident-metrics,
   .accident-dashboard-grid {
     grid-template-columns: 1fr;

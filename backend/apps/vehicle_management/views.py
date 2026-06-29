@@ -44,7 +44,7 @@ from .serializers import (
     FleetInsurancePolicySerializer, FleetAccidentCaseSerializer,
 )
 from .holiday_utils import iter_public_holidays, holiday_dates_between
-from .services.evdash_service import get_vehicle_evdash
+from .services.evdash_service import get_fleet_evdash, get_vehicle_evdash
 
 
 class CompanyViewSet(viewsets.ReadOnlyModelViewSet):
@@ -1183,6 +1183,17 @@ class FleetSiteViewSet(viewsets.ViewSet):
         for group in groups.values():
             if not group['records']:
                 group['records'].append(_orphan_history_record(group['plate']))
+
+        evdash_by_plate = get_fleet_evdash(vehicles)
+        for group in groups.values():
+            group['evdash'] = evdash_by_plate.get(group['plate'], {
+                'configured': True,
+                'matched': False,
+                'detail': 'EV Dashboard 차량 목록에서 일치하는 차량을 찾지 못했습니다.',
+                'location': {'has_location': False, 'latitude': None, 'longitude': None},
+                'summary': {'observed_at': None, 'age_seconds': None, 'online': None, 'online_label': '미수신', 'tone': 'slate'},
+                'errors': {'has_error': False, 'items': [], 'count': 0},
+            })
 
         return Response({
             'company': {'id': default_company.id, 'code': default_company.code, 'name': default_company.name},
