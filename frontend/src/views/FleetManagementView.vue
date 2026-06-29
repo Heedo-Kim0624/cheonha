@@ -845,6 +845,7 @@ let fleetMap = null
 let fleetMapOl = null
 let fleetMarkerLayer = null
 let fleetMapResizeObserver = null
+let fleetMapFitTimer = null
 
 const activeTab = computed(() => route.meta.fleetTab || 'dashboard')
 const currentTab = computed(() => tabs.find((tab) => tab.key === activeTab.value))
@@ -1283,6 +1284,10 @@ function toggleFleetMapList(mode) {
 
 function resetFleetMap() {
   try {
+    if (fleetMapFitTimer) {
+      window.clearTimeout(fleetMapFitTimer)
+      fleetMapFitTimer = null
+    }
     fleetMapResizeObserver?.disconnect?.()
     fleetMap?.setTarget?.(null)
   } catch {
@@ -1294,6 +1299,20 @@ function resetFleetMap() {
   fleetMapResizeObserver = null
 }
 
+function isFleetMapTargetStale() {
+  if (!fleetMap || !fleetMapEl.value) return false
+  try {
+    const target = typeof fleetMap.getTargetElement === 'function'
+      ? fleetMap.getTargetElement()
+      : null
+    if (target && target !== fleetMapEl.value) return true
+    if (target && !document.body.contains(target)) return true
+    return !fleetMapEl.value.querySelector('.ol-viewport')
+  } catch {
+    return true
+  }
+}
+
 async function ensureFleetMap() {
   if (activeTab.value !== 'dashboard' || !fleetMapEl.value) return
   if (!evdashLocatedGroups.value.length) {
@@ -1301,6 +1320,9 @@ async function ensureFleetMap() {
     return
   }
   try {
+    if (isFleetMapTargetStale()) {
+      resetFleetMap()
+    }
     const { vw, ol } = await loadVWorld()
     fleetMapOl = ol
     if (!fleetMap) {
@@ -1364,7 +1386,7 @@ function renderFleetMarkers() {
   })
   zoomFleetMapToMarkerLayer()
   requestAnimationFrame(() => zoomFleetMapToMarkerLayer())
-  window.setTimeout(() => zoomFleetMapToMarkerLayer(), 250)
+  fleetMapFitTimer = window.setTimeout(() => zoomFleetMapToMarkerLayer(), 350)
 }
 
 function zoomFleetMapToMarkerLayer() {
@@ -1374,6 +1396,11 @@ function zoomFleetMapToMarkerLayer() {
   if (!source.getFeatures().length || fleetMapOl.extent.isEmpty(extent)) return
 
   fleetMap.updateSize()
+  const size = fleetMap.getSize?.()
+  if (!size || size[0] < 80 || size[1] < 80) {
+    fleetMapFitTimer = window.setTimeout(() => zoomFleetMapToMarkerLayer(), 120)
+    return
+  }
   const view = fleetMap.getView()
   const width = fleetMapOl.extent.getWidth(extent)
   const height = fleetMapOl.extent.getHeight(extent)
@@ -1382,11 +1409,10 @@ function zoomFleetMapToMarkerLayer() {
     view.setZoom(15)
     return
   }
-  view.fit(extent, {
-    padding: [44, 44, 44, 44],
-    maxZoom: 15,
-    duration: 250,
-  })
+  const paddedExtent = fleetMapOl.extent.buffer(extent, Math.max(width, height) * 0.08)
+  // VWorld currently loads an older OpenLayers build where fit(extent, size, options)
+  // is the reliable signature. Passing options as the second argument is ignored there.
+  view.fit(paddedExtent, size, { maxZoom: 15 })
 }
 
 function documentByType(group, type, record = form.value.record) {
@@ -2195,7 +2221,17 @@ onMounted(async () => {
   await ensureFleetMap()
 })
 
-watch([activeTab, evdashLocatedGroups], async () => {
+watch(activeTab, async (tab) => {
+  if (tab !== 'dashboard') {
+    resetFleetMap()
+    return
+  }
+  await nextTick()
+  await ensureFleetMap()
+})
+
+watch(evdashLocatedGroups, async () => {
+  if (activeTab.value !== 'dashboard') return
   await nextTick()
   await ensureFleetMap()
 }, { deep: true })
