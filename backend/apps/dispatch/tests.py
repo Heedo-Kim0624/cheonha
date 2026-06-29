@@ -7,6 +7,7 @@ from rest_framework import status
 from apps.accounts.models import Team
 from apps.crew.models import CrewMember, YongchaPayGroup
 from apps.settlement.models import Settlement, SettlementDetail
+from apps.territory.models import Territory
 from .date_utils import date_iso, to_delivery_date, to_work_date
 from .models import DispatchUpload, DispatchRecord
 from .operation_report_services import (
@@ -453,6 +454,114 @@ class OperationReportAmountLookupTests(TestCase):
         self.assertNotIn((self.delivery_date.isoformat(), self.team_b.id), admin_lookup)
         self.assertIn((self.delivery_date.isoformat(), self.team_a.id), leader_lookup)
         self.assertNotIn((self.delivery_date.isoformat(), self.team_b.id), leader_lookup)
+
+
+class OperationReportUploadedTeamScopeTests(APITestCase):
+    def setUp(self):
+        self.delivery_date = date(2026, 5, 14)
+        self.team_a = Team.objects.create(code='A', name='A team', company_app='cheonha')
+        self.team_b = Team.objects.create(code='B', name='B team', company_app='cheonha')
+        self.admin = User.objects.create_user(
+            username='operation_scope_admin',
+            email='operation_scope_admin@example.com',
+            password='testpass123',
+            role='ADMIN',
+        )
+        self.uploader = User.objects.create_user(
+            username='operation_scope_uploader',
+            email='operation_scope_uploader@example.com',
+            password='testpass123',
+            role='TEAM_LEADER',
+            team=self.team_a,
+        )
+        self.client.force_authenticate(user=self.admin)
+
+        self.upload = DispatchUpload.objects.create(
+            uploaded_by=self.uploader,
+            team=self.team_a,
+            dispatch_date=self.delivery_date,
+            round_no=1,
+            status='CONFIRMED',
+        )
+        DispatchRecord.objects.create(
+            upload=self.upload,
+            row_num=1,
+            manager_name='driver_a',
+            sub_region='101A',
+            boxes=10,
+            households=5,
+            is_valid=True,
+        )
+        Territory.objects.create(
+            code='101A',
+            team=self.team_a,
+            geometry={
+                'type': 'Polygon',
+                'coordinates': [[
+                    [126.0, 37.0],
+                    [126.1, 37.0],
+                    [126.1, 37.1],
+                    [126.0, 37.1],
+                    [126.0, 37.0],
+                ]],
+            },
+        )
+        Territory.objects.create(
+            code='201B',
+            team=self.team_b,
+            geometry={
+                'type': 'Polygon',
+                'coordinates': [[
+                    [127.0, 38.0],
+                    [127.1, 38.0],
+                    [127.1, 38.1],
+                    [127.0, 38.1],
+                    [127.0, 38.0],
+                ]],
+            },
+        )
+
+    def _date_params(self):
+        return {
+            'start': self.delivery_date.isoformat(),
+            'end': self.delivery_date.isoformat(),
+            'shipper_code': 'kurly',
+        }
+
+    def test_operation_report_territories_only_include_uploaded_teams(self):
+        response = self.client.get(
+            '/api/v1/dispatch/uploads/operation-report-territories/',
+            self._date_params(),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['count'], 1)
+        self.assertEqual([item['team_id'] for item in response.data['results']], [self.team_a.id])
+        self.assertEqual([item['code'] for item in response.data['results']], ['101A'])
+
+    def test_operation_report_yongcha_map_only_include_uploaded_teams(self):
+        response = self.client.get(
+            '/api/v1/dispatch/uploads/operation-report-yongcha-map/',
+            self._date_params(),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['summary']['territory_count'], 1)
+        self.assertEqual([item['team_id'] for item in response.data['results']], [self.team_a.id])
+        self.assertEqual([item['code'] for item in response.data['results']], ['101A'])
+
+    def test_operation_report_team_filter_without_upload_returns_empty(self):
+        response = self.client.get(
+            '/api/v1/dispatch/uploads/operation-report-territories/',
+            {
+                **self._date_params(),
+                'team': self.team_b.code,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['count'], 0)
+        self.assertEqual(response.data['results'], [])
 
 
 class OperationReportSummaryTests(TestCase):

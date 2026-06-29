@@ -750,7 +750,7 @@ const loadShipperOptions = async () => {
   }
 }
 
-const territoryCacheKey = () => `${selectedCompany.value || 'cheonha'}|all`
+const territoryCacheKey = (params = {}) => `${selectedCompany.value || 'cheonha'}|${cacheKeyFromParams(params) || 'all'}`
 
 const normalizeTeamToken = (value) => String(value || '').trim().replace(/조$/, '').toUpperCase()
 
@@ -765,10 +765,10 @@ const matchesSelectedTeam = (territory) => {
   ].some((value) => normalizeTeamToken(value) === target)
 }
 
-const loadTerritoryGeometryRows = async () => {
-  const key = territoryCacheKey()
+const loadTerritoryGeometryRows = async (params = {}) => {
+  const key = territoryCacheKey(params)
   if (!territoryGeometryCache.has(key)) {
-    const response = await fetchOperationReportTerritories({})
+    const response = await fetchOperationReportTerritories(params)
     territoryGeometryCache.set(key, response.data?.results || [])
   }
   return territoryGeometryCache.get(key) || []
@@ -1456,7 +1456,7 @@ const loadReport = async (options = {}) => {
     })
 
   Promise.allSettled([
-    loadTerritoryGeometryRows(),
+    loadTerritoryGeometryRows(params),
     fetchYongchaMapPayload({ ...params, include_geometry: false }, { force }),
   ]).then(([geometryResult, mapResult]) => {
     if (seq !== reportLoadSeq) return

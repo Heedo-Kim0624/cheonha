@@ -1394,20 +1394,28 @@ class DispatchUploadViewSet(viewsets.ModelViewSet):
 
         company_app = get_company_app_from_request(request)
         team_filter = str(request.query_params.get('team') or '').strip()
-        cache_key = self._operation_report_static_cache_key(
-            request,
-            'territories-v1',
-            {'team': team_filter},
-        )
+        cache_key = self._operation_report_cache_key(request, 'territories-v2')
         cached = cache.get(cache_key)
         if cached is not None:
             return Response(cached)
+
+        upload_rows, _, _ = self._operation_report_upload_values(request)
+        uploaded_team_ids = {
+            row.get('team_id')
+            for row in upload_rows
+            if row.get('team_id')
+        }
 
         territory_qs = (
             Territory.objects
             .filter(team__company_app=company_app)
             .select_related('team')
         )
+        if uploaded_team_ids:
+            territory_qs = territory_qs.filter(team_id__in=uploaded_team_ids)
+        else:
+            territory_qs = territory_qs.none()
+
         if team_filter:
             team_q = Q(team__name=team_filter) | Q(team__code=team_filter)
             if team_filter.isdigit():
@@ -1451,6 +1459,11 @@ class DispatchUploadViewSet(viewsets.ModelViewSet):
             request,
             include_settlement_details=False,
         )
+        uploaded_team_ids = {
+            upload.team_id
+            for upload in uploads
+            if upload.team_id
+        }
         crew_codes_by_team = defaultdict(set)
 
         for upload in uploads:
@@ -1550,6 +1563,10 @@ class DispatchUploadViewSet(viewsets.ModelViewSet):
             .filter(team__company_app=company_app)
             .select_related('team')
         )
+        if uploaded_team_ids:
+            territory_qs = territory_qs.filter(team_id__in=uploaded_team_ids)
+        else:
+            territory_qs = territory_qs.none()
 
         team_filter = str(request.query_params.get('team') or '').strip()
         if team_filter:
