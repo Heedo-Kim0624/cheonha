@@ -104,10 +104,10 @@
             <div v-if="fleetMapListMode" class="fleet-map-list">
               <div class="subpanel-head compact">
                 <h4>{{ fleetMapListTitle }}</h4>
-                <span>{{ fleetMapListRows.length }}대</span>
+                <span>{{ fleetMapListRangeText }}</span>
               </div>
               <button
-                v-for="group in fleetMapListRows"
+                v-for="group in paginatedFleetMapListRows"
                 :key="group.plate"
                 type="button"
                 class="fleet-map-list-row"
@@ -118,6 +118,11 @@
                 <small>{{ fleetMapListMode === 'errors' ? evdashErrorText(group) : evdashLastSeenText(group) }}</small>
               </button>
               <p v-if="!fleetMapListRows.length" class="empty-note">해당 차량이 없습니다.</p>
+              <div v-else-if="fleetMapListTotalPages > 1" class="fleet-map-list-pagination">
+                <button type="button" :disabled="fleetMapListCurrentPage <= 1" @click="setFleetMapListPage(fleetMapListCurrentPage - 1)">이전</button>
+                <span>{{ fleetMapListCurrentPage }} / {{ fleetMapListTotalPages }}</span>
+                <button type="button" :disabled="fleetMapListCurrentPage >= fleetMapListTotalPages" @click="setFleetMapListPage(fleetMapListCurrentPage + 1)">다음</button>
+              </div>
             </div>
           </section>
 
@@ -1066,6 +1071,8 @@ const fleetMapEl = ref(null)
 const fleetMapId = 'fleet-dashboard-map'
 const fleetMapError = ref('')
 const fleetMapListMode = ref('')
+const fleetMapListPage = ref(1)
+const fleetMapListPageSize = 10
 
 let fleetMap = null
 let fleetMapOl = null
@@ -1171,6 +1178,27 @@ const fleetMapListTitle = computed(() => (
 const fleetMapListRows = computed(() => (
   fleetMapListMode.value === 'errors' ? evdashErrorGroups.value : evdashNoRecentGroups.value
 ))
+
+const fleetMapListTotalPages = computed(() =>
+  Math.max(1, Math.ceil(fleetMapListRows.value.length / fleetMapListPageSize)),
+)
+
+const fleetMapListCurrentPage = computed(() =>
+  Math.min(Math.max(1, fleetMapListPage.value), fleetMapListTotalPages.value),
+)
+
+const paginatedFleetMapListRows = computed(() => {
+  const start = (fleetMapListCurrentPage.value - 1) * fleetMapListPageSize
+  return fleetMapListRows.value.slice(start, start + fleetMapListPageSize)
+})
+
+const fleetMapListRangeText = computed(() => {
+  const total = fleetMapListRows.value.length
+  if (!total) return '0대'
+  const start = (fleetMapListCurrentPage.value - 1) * fleetMapListPageSize + 1
+  const end = Math.min(total, start + fleetMapListPageSize - 1)
+  return `${start}-${end} / ${total}대`
+})
 
 const allSubscriptions = computed(() => groups.value.flatMap((group) =>
   (group.subscriptions || []).map((item) => ({
@@ -1519,6 +1547,11 @@ function evdashErrorText(group) {
 
 function toggleFleetMapList(mode) {
   fleetMapListMode.value = fleetMapListMode.value === mode ? '' : mode
+  fleetMapListPage.value = 1
+}
+
+function setFleetMapListPage(page) {
+  fleetMapListPage.value = Math.min(Math.max(1, page), fleetMapListTotalPages.value)
 }
 
 function resetFleetMap() {
@@ -3018,6 +3051,36 @@ input {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.fleet-map-list-pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.fleet-map-list-pagination button {
+  border: 1px solid #d7deea;
+  border-radius: 10px;
+  background: #fff;
+  color: #101827;
+  padding: 8px 12px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.fleet-map-list-pagination button:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+
+.fleet-map-list-pagination span {
+  min-width: 72px;
+  text-align: center;
+  color: #667085;
+  font-weight: 900;
 }
 
 .empty-note {
