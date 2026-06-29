@@ -8,6 +8,12 @@ export const fetchFleetSite = (params = {}) =>
 export const createFleetReplacement = (payload) =>
   client.post(`${VM}/fleet-site/replacement/`, payload)
 
+export const uploadFleetBulkData = (formData, params = {}) =>
+  client.post(`${VM}/fleet-site/bulk-import/`, formData, {
+    params,
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+
 export const createFleetVehicle = (payload) =>
   client.post(`${VM}/vehicles/fleet-create/`, payload)
 
@@ -69,6 +75,15 @@ export const updateFleetInsurance = (insuranceId, payload) =>
 
 export const deleteFleetInsurance = (insuranceId) =>
   client.delete(`${VM}/fleet-insurances/${insuranceId}/`)
+
+export const createFleetInspection = (payload) =>
+  client.post(`${VM}/fleet-inspections/`, payload)
+
+export const updateFleetInspection = (inspectionId, payload) =>
+  client.patch(`${VM}/fleet-inspections/${inspectionId}/`, payload)
+
+export const deleteFleetInspection = (inspectionId) =>
+  client.delete(`${VM}/fleet-inspections/${inspectionId}/`)
 
 export const updateFleetAccident = (accidentId, payload) =>
   client.patch(`${VM}/fleet-accidents/${accidentId}/`, payload)

@@ -13,7 +13,9 @@ import calendar
 import hashlib
 import math
 import re
+import tempfile
 from datetime import date, datetime, timedelta
+from pathlib import Path
 from uuid import uuid4
 from django.core.files.storage import default_storage
 from django.db import transaction
@@ -1637,6 +1639,54 @@ class FleetSiteViewSet(viewsets.ViewSet):
             'billing': billing,
             'profit': profit_totals,
             'groups': list(groups.values()),
+        })
+
+    @action(detail=False, methods=['post'], url_path='bulk-import')
+    @transaction.atomic
+    def bulk_import(self, request):
+        company_id = request.data.get('company')
+        company_code = request.data.get('company_code') or request.query_params.get('company') or 'CHEONHA'
+        company = Company.objects.filter(id=company_id).first() if company_id else Company.objects.filter(code=company_code).first()
+        if not company:
+            return Response({'detail': 'Unknown vehicle company.'}, status=status.HTTP_404_NOT_FOUND)
+
+        uploads = request.FILES.getlist('files') or [
+            file for _key, file in request.FILES.items()
+        ]
+        if not uploads:
+            return Response({'detail': '업로드할 엑셀 파일을 선택해주세요.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        from apps.vehicle_management.management.commands.import_fleet_manage_data import Importer
+
+        importer = Importer(company=company, user=request.user, dry_run=False)
+        applied = []
+        with tempfile.TemporaryDirectory(prefix='fleet_import_') as tmpdir:
+            tmpdir_path = Path(tmpdir)
+            for uploaded in uploads:
+                original_name = Path(uploaded.name or 'upload.xlsx').name
+                target = tmpdir_path / original_name
+                with target.open('wb') as fp:
+                    for chunk in uploaded.chunks():
+                        fp.write(chunk)
+
+                lower_name = original_name.lower()
+                if '260625' in lower_name or '손익' in original_name:
+                    importer.import_master_file(target)
+                    importer.import_profit_source_sheets(target)
+                    applied.append({'file': original_name, 'type': '차량마스터/손익'})
+                elif '260626' in lower_name or '구독' in original_name:
+                    importer.import_subscription_history(target)
+                    applied.append({'file': original_name, 'type': '구독이력'})
+                elif '사고' in original_name or 'accident' in lower_name:
+                    importer.import_accident_history(target)
+                    applied.append({'file': original_name, 'type': '사고이력'})
+                else:
+                    importer.warn(f'{original_name}: 파일명을 기준으로 이관 유형을 판단하지 못했습니다.')
+
+        return Response({
+            'company': company.code,
+            'applied': applied,
+            'summary': importer.summary,
         })
 
     @action(detail=False, methods=['post'])

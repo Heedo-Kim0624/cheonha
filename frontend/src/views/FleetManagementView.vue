@@ -291,6 +291,7 @@
               <button class="btn" type="button" @click="openSubscription(selectedGroup)">구독 계약</button>
               <button class="btn" type="button" @click="openReturn(selectedGroup)">반납 접수</button>
               <button class="btn" type="button" @click="openInsurance(selectedGroup)">보험 등록</button>
+              <button class="btn" type="button" @click="openInspection(selectedGroup)">TS검사</button>
               <button class="btn primary" type="button" @click="openReplacement(selectedGroup)">대폐차</button>
             </div>
           </div>
@@ -458,6 +459,26 @@
               </div>
             </div>
             <div v-else class="empty-box">보험 계약이 없습니다.</div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <h3>TS검사 일정</h3>
+                <p>차량 목록과 대시보드 집계에 연결되는 검사 일정을 관리합니다.</p>
+              </div>
+              <button class="btn primary" type="button" @click="openInspection(selectedGroup)">＋ 검사 등록</button>
+            </div>
+            <div v-if="selectedGroup.inspections?.length" class="stack-list">
+              <div v-for="item in selectedGroup.inspections" :key="item.id" class="doc-row">
+                <div>
+                  <strong>{{ item.status || '예정' }} · {{ date(item.scheduled) }}</strong>
+                  <small>완료 {{ date(item.completed) }} · {{ item.memo || '메모 없음' }}</small>
+                </div>
+                <button class="btn soft" type="button" @click="openInspectionDetail(item)">상세</button>
+              </div>
+            </div>
+            <div v-else class="empty-box">TS검사 일정이 없습니다.</div>
           </section>
 
           <section class="panel">
@@ -711,11 +732,26 @@
         <div class="panel-head">
           <div>
             <h3>엑셀 업로드</h3>
-            <p>사고관리 통합 양식은 Vue에서 바로 다운로드하고, 대량 업로드는 기존 화면을 임시 연결합니다.</p>
+            <p>실데이터 이관 파일 3종과 사고관리 통합 양식을 업로드합니다.</p>
           </div>
         </div>
-        <div class="upload-bridge">
-          <button class="btn" type="button" @click="downloadAccidentTemplate">사고 이력 통합 양식 다운로드</button>
+        <div class="upload-grid">
+          <section class="upload-card">
+            <h4>실데이터 대량 업로드</h4>
+            <p>차량 손익, 구독 과거이력, 사고 전체이력 파일을 한 번에 선택할 수 있습니다.</p>
+            <input type="file" accept=".xlsx,.xls" multiple @change="setBulkFiles" />
+            <div class="upload-file-list">
+              <span v-for="file in bulkUploadFiles" :key="file.name">{{ file.name }}</span>
+              <small v-if="!bulkUploadFiles.length">선택된 파일 없음</small>
+            </div>
+            <button class="btn primary" type="button" :disabled="saving || !bulkUploadFiles.length" @click="submitBulkUpload">선택 파일 업로드</button>
+          </section>
+          <section class="upload-card">
+            <h4>사고 이력 통합 업로드</h4>
+            <p>사고관리대장과 보상상세내역을 통합 양식으로 등록합니다.</p>
+            <button class="btn" type="button" @click="downloadAccidentTemplate">통합 양식 다운로드</button>
+            <input type="file" accept=".xlsx,.xls,.csv" @change="submitAccidentUpload" />
+          </section>
         </div>
       </section>
 
@@ -875,6 +911,20 @@
               </div>
             </template>
 
+            <template v-else-if="modal.type === 'inspection' || modal.type === 'inspection-detail'">
+              <div class="form-grid">
+                <label><span>차량번호</span><select v-model="form.plate" @change="syncFormRecord"><option v-for="group in groups" :key="group.plate">{{ group.plate }}</option></select></label>
+                <label><span>실제 차량</span><select v-model="form.vehicleRecordId"><option v-for="record in recordsForPlate(form.plate)" :key="record.id" :value="record.id">{{ record.vin }} · {{ record.model }}</option></select></label>
+                <label><span>검사 예정일</span><input v-model="form.scheduled" type="date" required></label>
+                <label><span>검사 완료일</span><input v-model="form.completed" type="date"></label>
+                <label><span>상태</span><select v-model="form.status"><option value="scheduled">예정</option><option value="completed">완료</option><option value="delayed">지연</option><option value="cancelled">취소</option></select></label>
+                <label class="full"><span>메모</span><textarea v-model="form.memo"></textarea></label>
+              </div>
+              <div v-if="modal.type === 'inspection-detail'" class="modal-extra-actions">
+                <button type="button" class="btn danger" @click="removeInspection">검사 일정 삭제</button>
+              </div>
+            </template>
+
             <template v-else-if="modal.type === 'replacement'">
               <div class="form-grid">
                 <label class="full"><span>기존 차량번호</span><input v-model="form.vehicleNumber" readonly></label>
@@ -958,16 +1008,21 @@ import {
   downloadFleetAccidentTemplate,
   downloadFleetMonthlyBilling,
   closeFleetMonth,
+  createFleetInspection,
   reopenFleetMonth,
   recalculateFleetProfit,
+  deleteFleetInspection,
   updateFleetAccident,
   updateFleetDocument,
   updateFleetInsurance,
+  updateFleetInspection,
   updateFleetRecordStatus,
   updateFleetReturn,
   updateFleetSubscription,
   updateFleetVehicleInfo,
   updateFleetVehicleStatus,
+  uploadFleetAccidentHistory,
+  uploadFleetBulkData,
   uploadFleetReturnPhoto,
 } from '@/api/fleetManagement'
 
@@ -1061,6 +1116,7 @@ const detailMode = ref('all')
 const saving = ref(false)
 const modal = ref({ open: false, type: '', title: '', caption: '', submitLabel: '', wide: false })
 const form = ref({})
+const bulkUploadFiles = ref([])
 
 const detailModeLabel = computed(() =>
   detailModes.find((item) => item.key === detailMode.value)?.label || '차량번호 전체 이력',
@@ -1816,6 +1872,33 @@ function openInsuranceDetail(item) {
   }, { submitLabel: '저장', wide: true })
 }
 
+function openInspection(group) {
+  const record = currentRecord(group)
+  openModal('inspection', 'TS검사 일정 등록', {
+    companyId: groupCompanyId(group),
+    group,
+    record,
+    plate: group.plate,
+    vehicleRecordId: record?.id || '',
+    scheduled: today(),
+    completed: '',
+    status: 'scheduled',
+    memo: '',
+  }, { submitLabel: '검사 일정 등록', wide: true })
+}
+
+function openInspectionDetail(item) {
+  openModal('inspection-detail', 'TS검사 일정 수정', {
+    apiId: item.apiId,
+    plate: item.plate,
+    vehicleRecordId: item.vehicleId,
+    scheduled: item.scheduled || '',
+    completed: item.completed || '',
+    status: item.status || 'scheduled',
+    memo: item.memo || '',
+  }, { submitLabel: '저장', wide: true })
+}
+
 function openReplacement(group) {
   const record = currentRecord(group)
   const tomorrow = new Date(Date.now() + 86400000)
@@ -1990,6 +2073,17 @@ async function removeInsurance() {
   }
 }
 
+async function removeInspection() {
+  if (!form.value.apiId) return
+  try {
+    await deleteFleetInspection(form.value.apiId)
+    closeModal()
+    await reload()
+  } catch (err) {
+    error.value = err?.response?.data?.detail || err?.message || 'TS검사 일정 삭제에 실패했습니다.'
+  }
+}
+
 async function submitModal() {
   saving.value = true
   try {
@@ -2002,6 +2096,8 @@ async function submitModal() {
     else if (modal.value.type === 'return-detail') await submitReturn(true)
     else if (modal.value.type === 'insurance') await submitInsurance(false)
     else if (modal.value.type === 'insurance-detail') await submitInsurance(true)
+    else if (modal.value.type === 'inspection') await submitInspection(false)
+    else if (modal.value.type === 'inspection-detail') await submitInspection(true)
     else if (modal.value.type === 'replacement') await submitReplacement()
     else if (modal.value.type === 'accident-detail') await submitAccident()
   } catch (err) {
@@ -2170,6 +2266,24 @@ async function submitInsurance(isUpdate) {
   }
   if (isUpdate) await updateFleetInsurance(form.value.apiId, payload)
   else await createFleetInsurance(payload)
+  closeModal()
+  await reload()
+}
+
+async function submitInspection(isUpdate) {
+  const refs = payloadVehicleRefs()
+  const payload = {
+    company: formCompanyId(),
+    vehicle: refs.vehicle,
+    vehicle_record: refs.vehicle_record,
+    vehicle_number: form.value.plate,
+    scheduled_date: form.value.scheduled,
+    completed_date: form.value.completed || null,
+    status: form.value.status || 'scheduled',
+    memo: form.value.memo || '',
+  }
+  if (isUpdate) await updateFleetInspection(form.value.apiId, payload)
+  else await createFleetInspection(payload)
   closeModal()
   await reload()
 }
@@ -2464,6 +2578,43 @@ async function downloadAccidentTemplate() {
     URL.revokeObjectURL(blobUrl)
   } catch (err) {
     error.value = err?.response?.data?.detail || err?.message || '양식 다운로드에 실패했습니다.'
+  }
+}
+
+function setBulkFiles(event) {
+  bulkUploadFiles.value = Array.from(event?.target?.files || [])
+}
+
+async function submitBulkUpload() {
+  if (!bulkUploadFiles.value.length) return
+  saving.value = true
+  try {
+    const formData = new FormData()
+    bulkUploadFiles.value.forEach((file) => formData.append('files', file))
+    await uploadFleetBulkData(formData, { company: fleetCompanyCode() })
+    bulkUploadFiles.value = []
+    await reload()
+  } catch (err) {
+    error.value = err?.response?.data?.detail || err?.message || '실데이터 대량 업로드에 실패했습니다.'
+  } finally {
+    saving.value = false
+  }
+}
+
+async function submitAccidentUpload(event) {
+  const file = event?.target?.files?.[0]
+  if (!file) return
+  saving.value = true
+  try {
+    const formData = new FormData()
+    formData.append('file', file)
+    await uploadFleetAccidentHistory(formData, { company: fleetCompanyCode() })
+    await reload()
+  } catch (err) {
+    error.value = err?.response?.data?.detail || err?.message || '사고 이력 업로드에 실패했습니다.'
+  } finally {
+    saving.value = false
+    if (event?.target) event.target.value = ''
   }
 }
 
@@ -2960,6 +3111,59 @@ input {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
+}
+
+.upload-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.upload-card {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+  border: 1px solid #e4e8f0;
+  border-radius: 16px;
+  background: #fff;
+  padding: 18px;
+}
+
+.upload-card h4 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.upload-card p {
+  margin: 0;
+  color: #667085;
+  font-weight: 700;
+}
+
+.upload-card input[type="file"] {
+  width: 100%;
+  border: 1px dashed #cbd5e1;
+  border-radius: 12px;
+  background: #f8fafc;
+  padding: 12px;
+}
+
+.upload-file-list {
+  min-height: 36px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.upload-file-list span,
+.upload-file-list small {
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: #475569;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 800;
 }
 
 .vehicle-detail-page {
