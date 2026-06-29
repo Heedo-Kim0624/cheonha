@@ -1269,7 +1269,12 @@ function evdashLastSeenText(group) {
 function evdashErrorText(group) {
   const items = group?.evdash?.errors?.items || []
   if (!items.length) return '에러 상세 없음'
-  return items.slice(0, 3).map((item) => `${item.field}: ${item.value}`).join(' / ')
+  return items.slice(0, 3).map((item) => {
+    if (item.fault_code) {
+      return [`코드 ${item.fault_code}`, item.severity, item.description].filter(Boolean).join(' · ')
+    }
+    return `${item.field}: ${item.value}`
+  }).join(' / ')
 }
 
 function toggleFleetMapList(mode) {

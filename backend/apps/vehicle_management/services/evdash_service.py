@@ -4,6 +4,7 @@ from datetime import datetime
 
 import psycopg2
 import psycopg2.extras
+from psycopg2 import sql
 from django.core.cache import cache
 from django.utils import timezone
 
@@ -11,6 +12,7 @@ from django.utils import timezone
 EVDASH_LIST_VIEW = 'v_cheonha_vehicle_list'
 EVDASH_LATEST_VIEW = 'v_cheonha_vehicle_latest'
 EVDASH_FLEET_STATS_VIEW = 'v_cheonha_fleet_stats'
+EVDASH_DIAGNOSTIC_TABLE = 'dashboard_diagnostic'
 
 
 def _cache_ttl() -> int:
@@ -312,6 +314,90 @@ def _detect_errors(*rows):
     }
 
 
+def _empty_errors():
+    return {
+        'has_error': False,
+        'items': [],
+        'count': 0,
+        'source': 'dashboard_diagnostic',
+    }
+
+
+def _diagnostic_item(row):
+    fault_code = row.get('fault_code')
+    severity = row.get('severity') or ''
+    description = row.get('description') or ''
+    return {
+        'field': f'fault_code {fault_code}' if fault_code not in (None, '') else 'fault_code',
+        'value': ' · '.join(part for part in [str(severity).strip(), str(description).strip()] if part),
+        'fault_code': str(fault_code) if fault_code not in (None, '') else '',
+        'severity': str(severity),
+        'description': str(description),
+        'occurred_at': _iso(row.get('occurrence_time')),
+        'is_resolved': bool(row.get('is_resolved')) if row.get('is_resolved') is not None else False,
+        'resolved_at': _iso(row.get('maintenance_completion_time')),
+        'vehicle_plate_number': row.get('vehicle_plate_number') or '',
+        'model_name': row.get('model_name') or '',
+    }
+
+
+def _diagnostic_errors(rows):
+    rows = list(rows or [])
+    if not rows:
+        return _empty_errors()
+    return {
+        'has_error': True,
+        'items': [_diagnostic_item(row) for row in rows[:12]],
+        'count': int(rows[0].get('_diagnostic_count') or len(rows)),
+        'source': 'dashboard_diagnostic',
+    }
+
+
+def _active_diagnostics_by_terminal(conn, terminal_ids):
+    terminal_ids = sorted({int(item) for item in terminal_ids if item})
+    if not terminal_ids:
+        return {}
+
+    query = sql.SQL(
+        """
+        WITH ranked AS (
+          SELECT
+            terminal_id,
+            vehicle_plate_number,
+            model_name,
+            fault_code,
+            description,
+            severity,
+            occurrence_time,
+            is_resolved,
+            maintenance_completion_time,
+            created_at,
+            count(*) OVER (PARTITION BY terminal_id) AS _diagnostic_count,
+            row_number() OVER (
+              PARTITION BY terminal_id
+              ORDER BY occurrence_time DESC NULLS LAST, created_at DESC NULLS LAST
+            ) AS rn
+          FROM {table}
+          WHERE terminal_id = ANY(%s)
+            AND (is_resolved IS DISTINCT FROM TRUE OR maintenance_completion_time IS NULL)
+        )
+        SELECT *
+        FROM ranked
+        WHERE rn <= 12
+        ORDER BY terminal_id, occurrence_time DESC NULLS LAST, created_at DESC NULLS LAST
+        """
+    ).format(table=sql.Identifier(EVDASH_DIAGNOSTIC_TABLE))
+
+    with conn.cursor() as cur:
+        cur.execute(query, [terminal_ids])
+        rows = [dict(row) for row in cur.fetchall()]
+
+    grouped = {}
+    for row in rows:
+        grouped.setdefault(row.get('terminal_id'), []).append(row)
+    return grouped
+
+
 def _vehicle_match_params(vehicle):
     plate = str(getattr(vehicle, 'vehicle_number', '') or '').strip()
     plate_short = str(getattr(vehicle, 'vehicle_number_short', '') or '').strip()
@@ -432,6 +518,10 @@ def get_fleet_evdash(vehicles) -> dict:
         with _connect() as conn:
             rows_by_plate = _fleet_vehicle_rows(conn, vehicles)
             latest_by_id = _latest_rows(conn, [row.get('vehicle_id') for row, _method in rows_by_plate.values()])
+            diagnostics_by_terminal = _active_diagnostics_by_terminal(
+                conn,
+                [row.get('vehicle_id') for row, _method in rows_by_plate.values()],
+            )
             data = {}
             for vehicle in vehicles:
                 plate = str(getattr(vehicle, 'vehicle_number', '') or '').strip()
@@ -443,10 +533,13 @@ def get_fleet_evdash(vehicles) -> dict:
                         'detail': 'EV Dashboard 차량 목록에서 일치하는 차량을 찾지 못했습니다.',
                         'location': {'has_location': False, 'latitude': None, 'longitude': None},
                         'summary': {'observed_at': None, 'age_seconds': None, 'online': None, 'online_label': '미수신', 'tone': 'slate'},
-                        'errors': {'has_error': False, 'items': [], 'count': 0},
+                        'errors': _empty_errors(),
                     }
                     continue
                 latest_row = latest_by_id.get(vehicle_row.get('vehicle_id'))
+                diagnostic_errors = _diagnostic_errors(diagnostics_by_terminal.get(vehicle_row.get('vehicle_id')))
+                if not diagnostic_errors.get('has_error'):
+                    diagnostic_errors = _detect_errors(vehicle_row, latest_row)
                 data[plate] = {
                     'configured': True,
                     'matched': True,
@@ -455,7 +548,7 @@ def get_fleet_evdash(vehicles) -> dict:
                     'latest': _json_row(latest_row),
                     'location': _location_from_rows(vehicle_row, latest_row),
                     'summary': _build_summary(vehicle_row, latest_row),
-                    'errors': _detect_errors(vehicle_row, latest_row),
+                    'errors': diagnostic_errors,
                 }
     except Exception as exc:
         data = {
@@ -465,7 +558,7 @@ def get_fleet_evdash(vehicles) -> dict:
                 'detail': f'EV Dashboard 조회 실패: {exc.__class__.__name__}',
                 'location': {'has_location': False, 'latitude': None, 'longitude': None},
                 'summary': {'observed_at': None, 'age_seconds': None, 'online': None, 'online_label': '미수신', 'tone': 'slate'},
-                'errors': {'has_error': False, 'items': [], 'count': 0},
+                'errors': _empty_errors(),
             }
             for vehicle in vehicles
         }
@@ -506,6 +599,11 @@ def get_vehicle_evdash(vehicle) -> dict:
             else:
                 latest_row = _latest_row(conn, vehicle_row.get('vehicle_id'))
                 fleet_stats = _fleet_stats(conn, vehicle_row.get('fleet_id'))
+                diagnostic_errors = _diagnostic_errors(
+                    _active_diagnostics_by_terminal(conn, [vehicle_row.get('vehicle_id')]).get(vehicle_row.get('vehicle_id'))
+                )
+                if not diagnostic_errors.get('has_error'):
+                    diagnostic_errors = _detect_errors(vehicle_row, latest_row)
                 data = {
                     'configured': True,
                     'matched': True,
@@ -517,6 +615,7 @@ def get_vehicle_evdash(vehicle) -> dict:
                     'location': _location_from_rows(vehicle_row, latest_row),
                     'summary': _build_summary(vehicle_row, latest_row),
                     'status_cards': _build_status_cards(vehicle_row, latest_row),
+                    'errors': diagnostic_errors,
                 }
     except Exception as exc:
         data = {
@@ -541,6 +640,9 @@ def check_evdash_connection() -> dict:
               (SELECT count(*) FROM {EVDASH_LIST_VIEW}) AS vehicles,
               (SELECT count(*) FROM {EVDASH_LATEST_VIEW}) AS latest,
               (SELECT count(*) FROM {EVDASH_FLEET_STATS_VIEW}) AS fleets,
+              (SELECT count(*) FROM {EVDASH_DIAGNOSTIC_TABLE}) AS diagnostics,
+              (SELECT count(*) FROM {EVDASH_DIAGNOSTIC_TABLE}
+               WHERE is_resolved IS DISTINCT FROM TRUE OR maintenance_completion_time IS NULL) AS active_diagnostics,
               (SELECT max(last_seen_at) FROM {EVDASH_LIST_VIEW}) AS last_seen
             """
         )
@@ -550,5 +652,7 @@ def check_evdash_connection() -> dict:
         'vehicles': row.get('vehicles'),
         'latest': row.get('latest'),
         'fleets': row.get('fleets'),
+        'diagnostics': row.get('diagnostics'),
+        'active_diagnostics': row.get('active_diagnostics'),
         'last_seen': _iso(row.get('last_seen')),
     }

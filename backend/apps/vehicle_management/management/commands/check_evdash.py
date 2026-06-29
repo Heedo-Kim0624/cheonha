@@ -19,4 +19,6 @@ class Command(BaseCommand):
         self.stdout.write(f'vehicles    : {result.get("vehicles")}')
         self.stdout.write(f'latest      : {result.get("latest")}')
         self.stdout.write(f'fleets      : {result.get("fleets")}')
+        self.stdout.write(f'diagnostics : {result.get("diagnostics")}')
+        self.stdout.write(f'active_diag : {result.get("active_diagnostics")}')
         self.stdout.write(f'most_recent : {result.get("last_seen")}')
