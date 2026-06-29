@@ -9,9 +9,11 @@
 - /api/v1/vehicle/as-requests/               A/S 요청 list/create/complete
 """
 import io
+import calendar
+import hashlib
 import math
 import re
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from uuid import uuid4
 from django.core.files.storage import default_storage
 from django.db import transaction
@@ -33,6 +35,9 @@ from .models import (
     ReturnRequest, ReturnRequestPhoto, ASRequest,
     FleetVehicleRecord, FleetVehicleDocument, FleetSubscriptionContract, FleetReturnRecord,
     FleetInsurancePolicy, FleetAccidentCase,
+    FleetInspectionSchedule, FleetProfitRuleVersion, FleetProfitImportBatch,
+    FleetProfitRawEntry, FleetProfitAdjustment, FleetProfitMonthlySnapshot,
+    FleetMonthlyClose,
 )
 from .serializers import (
     CompanySerializer, VehicleSerializer, PitRecordSerializer, CalendarEventSerializer,
@@ -42,6 +47,10 @@ from .serializers import (
     FleetVehicleRecordSerializer, FleetVehicleDocumentSerializer,
     FleetSubscriptionContractSerializer, FleetReturnRecordSerializer,
     FleetInsurancePolicySerializer, FleetAccidentCaseSerializer,
+    FleetInspectionScheduleSerializer, FleetProfitRuleVersionSerializer,
+    FleetProfitImportBatchSerializer, FleetProfitRawEntrySerializer,
+    FleetProfitAdjustmentSerializer, FleetProfitMonthlySnapshotSerializer,
+    FleetMonthlyCloseSerializer,
 )
 from .holiday_utils import iter_public_holidays, holiday_dates_between
 from .services.evdash_service import get_fleet_evdash, get_vehicle_evdash
@@ -887,6 +896,253 @@ def _vm_file_payload(request, file_field, uploaded_at=None):
     }
 
 
+def _date_from_dt(value):
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        if timezone.is_aware(value):
+            value = timezone.localtime(value)
+        return value.date()
+    return value
+
+
+def _ensure_return_day_allowed(company, *date_values):
+    blocked = []
+    for value in date_values:
+        target_date = _date_from_dt(value)
+        if not target_date:
+            continue
+        if target_date.weekday() >= 5:
+            blocked.append((target_date, 'weekend'))
+            continue
+        if target_date.isoformat() in holiday_dates_between(target_date, target_date):
+            blocked.append((target_date, 'holiday'))
+            continue
+        if CalendarEvent.objects.filter(company=company, event_date=target_date, kind='BLOCK').exists():
+            blocked.append((target_date, 'blocked'))
+    if blocked:
+        target_date, reason = blocked[0]
+        label = {
+            'weekend': '주말',
+            'holiday': '공휴일',
+            'blocked': '반납 불가일',
+        }.get(reason, '반납 불가일')
+        raise serializers.ValidationError({
+            'scheduled_at': f'{target_date.isoformat()}은 {label}이라 반납 등록이 불가능합니다.',
+        })
+
+
+def _parse_month_param(value=None):
+    raw = str(value or '').strip()
+    if not raw:
+        today = timezone.localdate()
+        return date(today.year, today.month, 1)
+    for fmt in ('%Y-%m', '%Y-%m-%d'):
+        try:
+            parsed = datetime.strptime(raw[:10] if fmt == '%Y-%m-%d' else raw[:7], fmt).date()
+            return date(parsed.year, parsed.month, 1)
+        except ValueError:
+            continue
+    raise serializers.ValidationError({'month': 'Use YYYY-MM or YYYY-MM-DD format.'})
+
+
+def _month_bounds(month_value):
+    first = _parse_month_param(month_value)
+    last = date(first.year, first.month, calendar.monthrange(first.year, first.month)[1])
+    return first, last, last.day
+
+
+def _overlap_days(start_date, end_date, month_start, month_end):
+    if not start_date:
+        return 0, None, None
+    effective_end = end_date or month_end
+    overlap_start = max(start_date, month_start)
+    overlap_end = min(effective_end, month_end)
+    if overlap_end < overlap_start:
+        return 0, overlap_start, overlap_end
+    return (overlap_end - overlap_start).days + 1, overlap_start, overlap_end
+
+
+def _prorated_amount(monthly_fee, used_days, days_in_month):
+    if not monthly_fee or used_days <= 0 or days_in_month <= 0:
+        return 0
+    return int(int(monthly_fee) * used_days / days_in_month)
+
+
+def _charge_status_is_paid(value):
+    text = str(value or '').lower()
+    return '완료' in text or '입금완료' in text or 'paid' in text or 'complete' in text
+
+
+def _safe_int(value):
+    if value in (None, ''):
+        return 0
+    try:
+        if isinstance(value, str):
+            value = value.replace(',', '').replace('원', '').strip()
+        return int(float(value))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _customer_charges_for_subscription(subscription, month_start, month_end):
+    """Return first-month-only unpaid customer charges attached to return repairs."""
+    total = 0
+    rows = []
+    qs = FleetReturnRecord.objects.filter(
+        company=subscription.company,
+        subscription=subscription,
+    )
+    for ret in qs:
+        base_dt = ret.actual_at or ret.scheduled_at
+        if not base_dt:
+            continue
+        base_date = timezone.localtime(base_dt).date() if timezone.is_aware(base_dt) else base_dt.date()
+        first_month = date(base_date.year, base_date.month, 1)
+        if first_month != month_start:
+            continue
+        for repair in ret.repairs or []:
+            claim = _safe_int(repair.get('claim') if isinstance(repair, dict) else 0)
+            paid = _safe_int(repair.get('paid') if isinstance(repair, dict) else 0)
+            status_text = repair.get('payment') if isinstance(repair, dict) else ''
+            if claim <= 0 or _charge_status_is_paid(status_text):
+                continue
+            balance = max(claim - paid, 0)
+            if not balance:
+                continue
+            row = {
+                'returnId': ret.id,
+                'item': repair.get('item', '') if isinstance(repair, dict) else '',
+                'vendor': repair.get('vendor', '') if isinstance(repair, dict) else '',
+                'claim': claim,
+                'paid': paid,
+                'balance': balance,
+                'status': status_text,
+            }
+            rows.append(row)
+            total += balance
+    return total, rows
+
+
+def _monthly_subscription_billing(company, month_value):
+    month_start, month_end, days_in_month = _month_bounds(month_value)
+    qs = FleetSubscriptionContract.objects.filter(
+        company=company,
+        start_date__lte=month_end,
+        end_date__gte=month_start,
+    ).select_related('vehicle', 'vehicle_record')
+    rows = []
+    totals = {
+        'contracts': 0,
+        'subscriptionFee': 0,
+        'customerCharges': 0,
+        'finalAmount': 0,
+    }
+    for contract in qs.order_by('customer', 'vehicle_number', 'start_date', 'id'):
+        used_days, used_start, used_end = _overlap_days(contract.start_date, contract.end_date, month_start, month_end)
+        if used_days <= 0:
+            continue
+        prorated = _prorated_amount(contract.monthly_fee, used_days, days_in_month)
+        customer_charges, charge_rows = _customer_charges_for_subscription(contract, month_start, month_end)
+        final_amount = prorated + customer_charges
+        row = {
+            'id': contract.id,
+            'vehicleNumber': contract.vehicle_number,
+            'customer': contract.customer,
+            'monthlyFee': contract.monthly_fee,
+            'contractStart': _vm_date(contract.start_date),
+            'contractEnd': _vm_date(contract.end_date),
+            'usedStart': _vm_date(used_start),
+            'usedEnd': _vm_date(used_end),
+            'usedDays': used_days,
+            'daysInMonth': days_in_month,
+            'usedDaysLabel': f'{used_days}일',
+            'subscriptionFee': prorated,
+            'customerCharges': customer_charges,
+            'chargeItems': charge_rows,
+            'finalAmount': final_amount,
+            'status': contract.status,
+        }
+        rows.append(row)
+        totals['contracts'] += 1
+        totals['subscriptionFee'] += prorated
+        totals['customerCharges'] += customer_charges
+        totals['finalAmount'] += final_amount
+    return {
+        'month': _vm_date(month_start),
+        'monthLabel': month_start.strftime('%Y-%m'),
+        'daysInMonth': days_in_month,
+        'rows': rows,
+        'totals': totals,
+    }
+
+
+def _active_profit_rule(company, user=None):
+    rule, _created = FleetProfitRuleVersion.objects.get_or_create(
+        company=company,
+        version='v1',
+        defaults={
+            'title': 'Fleet profit v1',
+            'rules': {
+                'subscription_proration': 'floor(monthly_fee / days_in_month * used_days) per contract',
+                'customer_charge': 'first registered month only; paid completed excluded; partial paid keeps balance',
+                'revenue': 'subscription revenue + customer charges',
+                'cost': 'depreciation + insurance + repair + accident + manual negative adjustments',
+            },
+            'created_by': user,
+        },
+    )
+    if not rule.is_active:
+        rule.is_active = True
+        rule.save(update_fields=['is_active'])
+    return rule
+
+
+def _vehicle_expense_from_raw(company, vehicle_number, month_start, entry_type):
+    qs = FleetProfitRawEntry.objects.filter(
+        company=company,
+        vehicle_number=vehicle_number,
+        entry_type=entry_type,
+    )
+    total = 0
+    for entry in qs:
+        if entry.period_month and entry.period_month != month_start:
+            continue
+        total += _safe_int(entry.amount)
+    return total
+
+
+def _repair_claim_cost(group_returns, month_start):
+    total = 0
+    for ret in group_returns:
+        raw_dt = ret.get('actual') or ret.get('scheduled')
+        parsed = _parse_iso_date(raw_dt)
+        if not parsed or date(parsed.year, parsed.month, 1) != month_start:
+            continue
+        for repair in ret.get('repairs') or []:
+            if not isinstance(repair, dict):
+                continue
+            if _charge_status_is_paid(repair.get('payment')):
+                continue
+            total += _safe_int(repair.get('cost') or repair.get('claim'))
+    return total
+
+
+def _parse_iso_date(value):
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace('Z', '+00:00'))
+        if timezone.is_aware(parsed):
+            parsed = timezone.localtime(parsed)
+        return parsed.date()
+    except ValueError:
+        try:
+            return datetime.strptime(str(value)[:10], '%Y-%m-%d').date()
+        except ValueError:
+            return None
+
+
 def _vm_document_payload(request, document):
     payload = _vm_file_payload(request, document.file, document.uploaded_at)
     return {
@@ -1054,6 +1310,8 @@ class FleetSiteViewSet(viewsets.ViewSet):
                     'returns': [],
                     'accidents': [],
                     'insurances': [],
+                    'inspections': [],
+                    'profit': {},
                 }
             return groups[vehicle_number]
 
@@ -1180,6 +1438,25 @@ class FleetSiteViewSet(viewsets.ViewSet):
                 'items': accident.items or [],
             })
 
+        for inspection in FleetInspectionSchedule.objects.filter(company_id__in=company_ids).select_related('vehicle', 'vehicle_record', 'company'):
+            vehicle = inspection.vehicle
+            group = ensure_group(inspection.vehicle_number, vehicle, inspection.company)
+            record = resolve_record(group, inspection, _vm_date(inspection.scheduled_date))
+            group['inspections'].append({
+                'id': f'TS-{inspection.id}',
+                'apiId': inspection.id,
+                'companyId': inspection.company_id,
+                'companyCode': inspection.company.code if inspection.company_id else '',
+                'vehicleId': record.get('id') if record else (f'VEH-{vehicle.id}' if vehicle else ''),
+                'plate': inspection.vehicle_number,
+                'scheduled': _vm_date(inspection.scheduled_date),
+                'completed': _vm_date(inspection.completed_date),
+                'status': inspection.status,
+                'memo': inspection.memo,
+                'sourceKey': inspection.source_key,
+                'raw': inspection.raw or {},
+            })
+
         for group in groups.values():
             if not group['records']:
                 group['records'].append(_orphan_history_record(group['plate']))
@@ -1195,12 +1472,170 @@ class FleetSiteViewSet(viewsets.ViewSet):
                 'errors': {'has_error': False, 'items': [], 'count': 0},
             })
 
+        selected_company = default_company if len(companies) == 1 else default_company
+        month = request.query_params.get('month')
+        billing = _monthly_subscription_billing(selected_company, month)
+        billing_by_vehicle = {}
+        for row in billing['rows']:
+            billing_by_vehicle.setdefault(row['vehicleNumber'], []).append(row)
+
+        month_start = _parse_month_param(month)
+        rule = _active_profit_rule(selected_company, request.user)
+        profit_rows = []
+        for group in groups.values():
+            if group.get('companyId') != selected_company.id:
+                continue
+            vehicle_number = group['plate']
+            vehicle_billing_rows = billing_by_vehicle.get(vehicle_number, [])
+            subscription_revenue = sum(row['subscriptionFee'] for row in vehicle_billing_rows)
+            customer_charges = sum(row['customerCharges'] for row in vehicle_billing_rows)
+            depreciation_cost = _vehicle_expense_from_raw(selected_company, vehicle_number, month_start, 'depreciation')
+            insurance_cost = _vehicle_expense_from_raw(selected_company, vehicle_number, month_start, 'insurance')
+            repair_cost = _repair_claim_cost(group.get('returns') or [], month_start)
+            accident_cost = sum(_safe_int(item.get('compensation')) - _safe_int(item.get('paid')) for item in group.get('accidents') or [])
+            adjustments = FleetProfitAdjustment.objects.filter(
+                company=selected_company,
+                vehicle_number=vehicle_number,
+                period_month=month_start,
+            )
+            other_cost = sum(abs(adj.amount) for adj in adjustments if adj.amount < 0)
+            manual_revenue = sum(adj.amount for adj in adjustments if adj.amount > 0)
+            revenue = subscription_revenue + customer_charges + manual_revenue
+            costs = depreciation_cost + insurance_cost + repair_cost + accident_cost + other_cost
+            operating_profit = revenue - costs
+            net_profit = operating_profit
+            snapshot_defaults = {
+                'vehicle': _find_vehicle(selected_company, vehicle_number),
+                'vehicle_record': FleetVehicleRecord.objects.filter(
+                    company=selected_company,
+                    vehicle_number=vehicle_number,
+                ).order_by('-start_date', '-id').first(),
+                'rule_version': rule,
+                'revenue': revenue,
+                'subscription_revenue': subscription_revenue,
+                'customer_charges': customer_charges,
+                'depreciation_cost': depreciation_cost,
+                'insurance_cost': insurance_cost,
+                'repair_cost': repair_cost,
+                'accident_cost': accident_cost,
+                'other_cost': other_cost,
+                'operating_profit': operating_profit,
+                'net_profit': net_profit,
+                'calculation': {
+                    'billingRows': vehicle_billing_rows,
+                    'ruleVersion': rule.version,
+                },
+            }
+            snapshot = FleetProfitMonthlySnapshot.objects.filter(
+                company=selected_company,
+                vehicle_number=vehicle_number,
+                period_month=month_start,
+            ).first()
+            if snapshot:
+                if snapshot.is_closed:
+                    revenue = snapshot.revenue
+                    subscription_revenue = snapshot.subscription_revenue
+                    customer_charges = snapshot.customer_charges
+                    depreciation_cost = snapshot.depreciation_cost
+                    insurance_cost = snapshot.insurance_cost
+                    repair_cost = snapshot.repair_cost
+                    accident_cost = snapshot.accident_cost
+                    other_cost = snapshot.other_cost
+                    operating_profit = snapshot.operating_profit
+                    net_profit = snapshot.net_profit
+                else:
+                    for field_name, field_value in snapshot_defaults.items():
+                        setattr(snapshot, field_name, field_value)
+                    snapshot.save(update_fields=[*snapshot_defaults.keys(), 'updated_at'])
+            else:
+                snapshot = FleetProfitMonthlySnapshot.objects.create(
+                    company=selected_company,
+                    vehicle_number=vehicle_number,
+                    period_month=month_start,
+                    **snapshot_defaults,
+                )
+            group['profit'] = {
+                'snapshotId': snapshot.id,
+                'month': _vm_date(month_start),
+                'revenue': revenue,
+                'subscriptionRevenue': subscription_revenue,
+                'customerCharges': customer_charges,
+                'depreciationCost': depreciation_cost,
+                'insuranceCost': insurance_cost,
+                'repairCost': repair_cost,
+                'accidentCost': accident_cost,
+                'otherCost': other_cost,
+                'operatingProfit': operating_profit,
+                'netProfit': net_profit,
+                'ruleVersion': rule.version,
+                'isClosed': snapshot.is_closed,
+            }
+            profit_rows.append(group['profit'])
+
+        today = timezone.localdate()
+        seven_days = today + timedelta(days=7)
+        dashboard = {
+            'totalVehicles': len(groups),
+            'activeSubscriptions': sum(
+                1 for group in groups.values()
+                if any((item.get('status') or '').find('구독') >= 0 for item in group.get('subscriptions') or [])
+            ),
+            'returnsDue7Days': sum(
+                1 for group in groups.values()
+                if any(today <= (_parse_iso_date(item.get('scheduled')) or date.min) <= seven_days for item in group.get('returns') or [])
+            ),
+            'documentMissing': sum(
+                1 for group in groups.values()
+                if len({doc.get('type') for doc in group.get('documents') or []}) < 2
+            ),
+            'repairClaims': sum(
+                1 for group in groups.values()
+                for ret in group.get('returns') or []
+                for repair in ret.get('repairs') or []
+                if isinstance(repair, dict) and _safe_int(repair.get('claim')) > 0 and not _charge_status_is_paid(repair.get('payment'))
+            ),
+            'tsDue': sum(
+                1 for group in groups.values()
+                if any(today <= (_parse_iso_date(item.get('scheduled')) or date.max) <= seven_days for item in group.get('inspections') or [])
+            ),
+            'tsOverdue': sum(
+                1 for group in groups.values()
+                if any((_parse_iso_date(item.get('scheduled')) or date.max) < today and item.get('status') != 'completed' for item in group.get('inspections') or [])
+            ),
+            'insuranceDue': sum(
+                1 for group in groups.values()
+                if any(today <= (_parse_iso_date(item.get('end')) or date.max) <= seven_days for item in group.get('insurances') or [])
+            ),
+            'insuranceOverdue': sum(
+                1 for group in groups.values()
+                if any((_parse_iso_date(item.get('end')) or date.max) < today for item in group.get('insurances') or [])
+            ),
+        }
+        profit_totals = {
+            'revenue': sum(row['revenue'] for row in profit_rows),
+            'cost': sum(
+                row['depreciationCost'] + row['insuranceCost'] + row['repairCost'] + row['accidentCost'] + row['otherCost']
+                for row in profit_rows
+            ),
+            'operatingProfit': sum(row['operatingProfit'] for row in profit_rows),
+            'netProfit': sum(row['netProfit'] for row in profit_rows),
+            'positiveVehicles': sum(1 for row in profit_rows if row['netProfit'] >= 0),
+            'negativeVehicles': sum(1 for row in profit_rows if row['netProfit'] < 0),
+            'incompleteVehicles': sum(1 for group in groups.values() if not group.get('records')),
+            'averageProfit': int(sum(row['netProfit'] for row in profit_rows) / len(profit_rows)) if profit_rows else 0,
+            'ruleVersion': rule.version,
+            'month': _vm_date(month_start),
+        }
+
         return Response({
             'company': {'id': default_company.id, 'code': default_company.code, 'name': default_company.name},
             'companies': [
                 {'id': company.id, 'code': company.code, 'name': company.name}
                 for company in companies
             ],
+            'dashboard': dashboard,
+            'billing': billing,
+            'profit': profit_totals,
             'groups': list(groups.values()),
         })
 
@@ -1562,6 +1997,60 @@ class FleetSubscriptionContractViewSet(CompanyScopedMixin, FleetModelCreateMixin
             instance.contract_file = ''
             instance.save(update_fields=['contract_file', 'updated_at'])
 
+    @action(detail=False, methods=['get'], url_path='monthly-billing')
+    def monthly_billing(self, request):
+        company_code = request.query_params.get('company') or 'CHEONHA'
+        company = Company.objects.filter(code=company_code).first()
+        if not company:
+            return Response({'detail': 'Unknown vehicle company.'}, status=status.HTTP_404_NOT_FOUND)
+        return Response(_monthly_subscription_billing(company, request.query_params.get('month')))
+
+    @action(detail=False, methods=['get'], url_path='monthly-billing-export')
+    def monthly_billing_export(self, request):
+        company_code = request.query_params.get('company') or 'CHEONHA'
+        company = Company.objects.filter(code=company_code).first()
+        if not company:
+            return Response({'detail': 'Unknown vehicle company.'}, status=status.HTTP_404_NOT_FOUND)
+        billing = _monthly_subscription_billing(company, request.query_params.get('month'))
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = 'monthly_billing'
+        sheet.append([
+            '차량번호', '이름', '월 구독료', '계약 시작', '계약 종료',
+            '사용 시작', '사용 종료', '사용 일수', '구독료 청구액',
+            '수리비/사고 청구액', '최종 청구액', '상태',
+        ])
+        for row in billing['rows']:
+            sheet.append([
+                row['vehicleNumber'],
+                row['customer'],
+                row['monthlyFee'],
+                row['contractStart'],
+                row['contractEnd'],
+                row['usedStart'],
+                row['usedEnd'],
+                row['usedDaysLabel'],
+                row['subscriptionFee'],
+                row['customerCharges'],
+                row['finalAmount'],
+                row['status'],
+            ])
+        sheet.append([])
+        sheet.append(['합계', '', '', '', '', '', '', '', billing['totals']['subscriptionFee'], billing['totals']['customerCharges'], billing['totals']['finalAmount'], ''])
+        for column in sheet.columns:
+            letter = column[0].column_letter
+            sheet.column_dimensions[letter].width = min(max(len(str(cell.value or '')) for cell in column) + 3, 32)
+        stream = io.BytesIO()
+        workbook.save(stream)
+        stream.seek(0)
+        month_label = billing['monthLabel'].replace('-', '')
+        response = HttpResponse(
+            stream.getvalue(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+        response['Content-Disposition'] = f'attachment; filename="fleet_monthly_billing_{month_label}.xlsx"'
+        return response
+
 
 class FleetReturnRecordViewSet(CompanyScopedMixin, FleetModelCreateMixin, viewsets.ModelViewSet):
     queryset = FleetReturnRecord.objects.select_related('company', 'vehicle', 'subscription').all()
@@ -1574,6 +2063,11 @@ class FleetReturnRecordViewSet(CompanyScopedMixin, FleetModelCreateMixin, viewse
     def perform_create(self, serializer):
         subscription = serializer.validated_data.get('subscription')
         company = serializer.validated_data.get('company')
+        _ensure_return_day_allowed(
+            company,
+            serializer.validated_data.get('scheduled_at'),
+            serializer.validated_data.get('actual_at'),
+        )
         vehicle_record = serializer.validated_data.get('vehicle_record') or (subscription.vehicle_record if subscription else None)
         vehicle = serializer.validated_data.get('vehicle') or (vehicle_record.vehicle if vehicle_record else None) or (subscription.vehicle if subscription else None)
         vehicle_number = serializer.validated_data.get('vehicle_number') or (subscription.vehicle_number if subscription else '')
@@ -1586,6 +2080,12 @@ class FleetReturnRecordViewSet(CompanyScopedMixin, FleetModelCreateMixin, viewse
         _sync_subscription_return_status(record)
 
     def perform_update(self, serializer):
+        company = serializer.validated_data.get('company') or serializer.instance.company
+        _ensure_return_day_allowed(
+            company,
+            serializer.validated_data.get('scheduled_at', serializer.instance.scheduled_at),
+            serializer.validated_data.get('actual_at', serializer.instance.actual_at),
+        )
         record = serializer.save()
         _sync_subscription_return_status(record)
 
@@ -1901,6 +2401,178 @@ class FleetAccidentCaseViewSet(CompanyScopedMixin, FleetModelCreateMixin, viewse
             'skipped': len(skipped),
             'errors': skipped[:50],
         })
+
+
+class FleetInspectionScheduleViewSet(CompanyScopedMixin, FleetModelCreateMixin, viewsets.ModelViewSet):
+    queryset = FleetInspectionSchedule.objects.select_related('company', 'vehicle', 'vehicle_record').all()
+    serializer_class = FleetInspectionScheduleSerializer
+    permission_classes = [IsAuthenticated]
+    filter_backends = [filters.SearchFilter]
+    search_fields = ['vehicle_number', 'memo', 'source_key']
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        st = self.request.query_params.get('status')
+        month = self.request.query_params.get('month')
+        if st:
+            qs = qs.filter(status=st)
+        if month:
+            start, end, _days = _month_bounds(month)
+            qs = qs.filter(scheduled_date__gte=start, scheduled_date__lte=end)
+        return qs
+
+    def perform_create(self, serializer):
+        company = serializer.validated_data.get('company')
+        vehicle_record = serializer.validated_data.get('vehicle_record')
+        vehicle = serializer.validated_data.get('vehicle')
+        vehicle_number = serializer.validated_data.get('vehicle_number')
+        if vehicle_record:
+            vehicle = vehicle_record.vehicle or vehicle
+            vehicle_number = vehicle_record.vehicle_number or vehicle_number
+        if not vehicle:
+            vehicle = _find_vehicle(company, vehicle_number)
+        serializer.save(vehicle=vehicle, vehicle_record=vehicle_record, vehicle_number=vehicle_number, created_by=self.request.user)
+
+
+class FleetProfitRuleVersionViewSet(CompanyScopedMixin, viewsets.ModelViewSet):
+    queryset = FleetProfitRuleVersion.objects.select_related('company').all()
+    serializer_class = FleetProfitRuleVersionSerializer
+    permission_classes = [IsAuthenticated]
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
+
+
+class FleetProfitImportBatchViewSet(CompanyScopedMixin, viewsets.ReadOnlyModelViewSet):
+    queryset = FleetProfitImportBatch.objects.select_related('company').all()
+    serializer_class = FleetProfitImportBatchSerializer
+    permission_classes = [IsAuthenticated]
+
+
+class FleetProfitRawEntryViewSet(CompanyScopedMixin, viewsets.ReadOnlyModelViewSet):
+    queryset = FleetProfitRawEntry.objects.select_related('company', 'vehicle', 'vehicle_record', 'batch').all()
+    serializer_class = FleetProfitRawEntrySerializer
+    permission_classes = [IsAuthenticated]
+    filter_backends = [filters.SearchFilter]
+    search_fields = ['vehicle_number', 'source_sheet', 'source_key']
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        entry_type = self.request.query_params.get('entry_type')
+        vehicle_number = self.request.query_params.get('vehicle_number')
+        if entry_type:
+            qs = qs.filter(entry_type=entry_type)
+        if vehicle_number:
+            qs = qs.filter(vehicle_number=vehicle_number)
+        return qs
+
+
+class FleetProfitAdjustmentViewSet(CompanyScopedMixin, FleetModelCreateMixin, viewsets.ModelViewSet):
+    queryset = FleetProfitAdjustment.objects.select_related('company', 'vehicle', 'vehicle_record').all()
+    serializer_class = FleetProfitAdjustmentSerializer
+    permission_classes = [IsAuthenticated]
+    parser_classes = [JSONParser, FormParser, MultiPartParser]
+    filter_backends = [filters.SearchFilter]
+    search_fields = ['vehicle_number', 'category', 'description']
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        month = self.request.query_params.get('month')
+        if month:
+            qs = qs.filter(period_month=_parse_month_param(month))
+        return qs
+
+
+class FleetProfitMonthlySnapshotViewSet(CompanyScopedMixin, viewsets.ModelViewSet):
+    queryset = FleetProfitMonthlySnapshot.objects.select_related('company', 'vehicle', 'vehicle_record', 'rule_version').all()
+    serializer_class = FleetProfitMonthlySnapshotSerializer
+    permission_classes = [IsAuthenticated]
+    filter_backends = [filters.SearchFilter]
+    search_fields = ['vehicle_number']
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        month = self.request.query_params.get('month')
+        vehicle_number = self.request.query_params.get('vehicle_number')
+        if month:
+            qs = qs.filter(period_month=_parse_month_param(month))
+        if vehicle_number:
+            qs = qs.filter(vehicle_number=vehicle_number)
+        return qs
+
+    @action(detail=False, methods=['post'], url_path='recalculate')
+    def recalculate(self, request):
+        company_code = request.data.get('company') or request.query_params.get('company') or 'CHEONHA'
+        company = Company.objects.filter(code=company_code).first()
+        if not company:
+            return Response({'detail': 'Unknown vehicle company.'}, status=status.HTTP_404_NOT_FOUND)
+        # FleetSiteViewSet centralizes the current calculation and writes snapshots.
+        fake_request = request
+        fake_request._request.GET = fake_request._request.GET.copy()
+        fake_request._request.GET['company'] = company.code
+        if request.data.get('month'):
+            fake_request._request.GET['month'] = request.data.get('month')
+        response = FleetSiteViewSet.as_view({'get': 'list'})(fake_request._request)
+        return Response({
+            'detail': 'recalculated',
+            'profit': response.data.get('profit', {}),
+        })
+
+
+class FleetMonthlyCloseViewSet(CompanyScopedMixin, viewsets.ModelViewSet):
+    queryset = FleetMonthlyClose.objects.select_related('company').all()
+    serializer_class = FleetMonthlyCloseSerializer
+    permission_classes = [IsAuthenticated]
+
+    def perform_create(self, serializer):
+        serializer.save()
+
+    @action(detail=False, methods=['post'], url_path='close')
+    def close(self, request):
+        company_code = request.data.get('company') or request.query_params.get('company') or 'CHEONHA'
+        company = Company.objects.filter(code=company_code).first()
+        if not company:
+            return Response({'detail': 'Unknown vehicle company.'}, status=status.HTTP_404_NOT_FOUND)
+        period_month = _parse_month_param(request.data.get('month') or request.query_params.get('month'))
+        target = request.data.get('target') or 'profit'
+        obj, _created = FleetMonthlyClose.objects.update_or_create(
+            company=company,
+            period_month=period_month,
+            target=target,
+            defaults={
+                'status': 'closed',
+                'memo': request.data.get('memo', ''),
+                'closed_by': request.user,
+                'closed_at': timezone.now(),
+            },
+        )
+        if target == 'profit':
+            FleetProfitMonthlySnapshot.objects.filter(company=company, period_month=period_month).update(
+                is_closed=True,
+                closed_at=obj.closed_at,
+            )
+        return Response(self.get_serializer(obj).data)
+
+    @action(detail=False, methods=['post'], url_path='reopen')
+    def reopen(self, request):
+        company_code = request.data.get('company') or request.query_params.get('company') or 'CHEONHA'
+        company = Company.objects.filter(code=company_code).first()
+        if not company:
+            return Response({'detail': 'Unknown vehicle company.'}, status=status.HTTP_404_NOT_FOUND)
+        period_month = _parse_month_param(request.data.get('month') or request.query_params.get('month'))
+        target = request.data.get('target') or 'profit'
+        obj, _created = FleetMonthlyClose.objects.update_or_create(
+            company=company,
+            period_month=period_month,
+            target=target,
+            defaults={'status': 'open', 'memo': request.data.get('memo', ''), 'closed_by': None, 'closed_at': None},
+        )
+        if target == 'profit':
+            FleetProfitMonthlySnapshot.objects.filter(company=company, period_month=period_month).update(
+                is_closed=False,
+                closed_at=None,
+            )
+        return Response(self.get_serializer(obj).data)
 
 
 class ASRequestViewSet(CompanyScopedMixin, viewsets.ModelViewSet):

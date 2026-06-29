@@ -5,6 +5,10 @@ from .views import (
     FleetSiteViewSet, FleetVehicleRecordViewSet, FleetVehicleDocumentViewSet,
     FleetSubscriptionContractViewSet, FleetReturnRecordViewSet,
     FleetInsurancePolicyViewSet, FleetAccidentCaseViewSet,
+    FleetInspectionScheduleViewSet, FleetProfitRuleVersionViewSet,
+    FleetProfitImportBatchViewSet, FleetProfitRawEntryViewSet,
+    FleetProfitAdjustmentViewSet, FleetProfitMonthlySnapshotViewSet,
+    FleetMonthlyCloseViewSet,
 )
 
 router = DefaultRouter()
@@ -22,5 +26,12 @@ router.register(r'fleet-subscriptions', FleetSubscriptionContractViewSet, basena
 router.register(r'fleet-returns', FleetReturnRecordViewSet,   basename='vm-fleet-return')
 router.register(r'fleet-insurances', FleetInsurancePolicyViewSet, basename='vm-fleet-insurance')
 router.register(r'fleet-accidents', FleetAccidentCaseViewSet, basename='vm-fleet-accident')
+router.register(r'fleet-inspections', FleetInspectionScheduleViewSet, basename='vm-fleet-inspection')
+router.register(r'fleet-profit-rules', FleetProfitRuleVersionViewSet, basename='vm-fleet-profit-rule')
+router.register(r'fleet-profit-batches', FleetProfitImportBatchViewSet, basename='vm-fleet-profit-batch')
+router.register(r'fleet-profit-raw', FleetProfitRawEntryViewSet, basename='vm-fleet-profit-raw')
+router.register(r'fleet-profit-adjustments', FleetProfitAdjustmentViewSet, basename='vm-fleet-profit-adjustment')
+router.register(r'fleet-profit-snapshots', FleetProfitMonthlySnapshotViewSet, basename='vm-fleet-profit-snapshot')
+router.register(r'fleet-monthly-closes', FleetMonthlyCloseViewSet, basename='vm-fleet-monthly-close')
 
 urlpatterns = router.urls

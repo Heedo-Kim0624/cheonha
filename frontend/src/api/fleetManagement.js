@@ -41,6 +41,15 @@ export const createFleetSubscription = (payload) =>
 export const updateFleetSubscription = (subscriptionId, payload) =>
   client.patch(`${VM}/fleet-subscriptions/${subscriptionId}/`, payload)
 
+export const fetchFleetMonthlyBilling = (params = {}) =>
+  client.get(`${VM}/fleet-subscriptions/monthly-billing/`, { params })
+
+export const downloadFleetMonthlyBilling = (params = {}) =>
+  client.get(`${VM}/fleet-subscriptions/monthly-billing-export/`, {
+    params,
+    responseType: 'blob',
+  })
+
 export const createFleetReturn = (payload) =>
   client.post(`${VM}/fleet-returns/`, payload)
 
@@ -75,3 +84,21 @@ export const downloadFleetAccidentTemplate = (params = {}) =>
     params,
     responseType: 'blob',
   })
+
+export const createFleetProfitAdjustment = (payload) =>
+  client.post(`${VM}/fleet-profit-adjustments/`, payload)
+
+export const updateFleetProfitAdjustment = (adjustmentId, payload) =>
+  client.patch(`${VM}/fleet-profit-adjustments/${adjustmentId}/`, payload)
+
+export const deleteFleetProfitAdjustment = (adjustmentId) =>
+  client.delete(`${VM}/fleet-profit-adjustments/${adjustmentId}/`)
+
+export const recalculateFleetProfit = (payload = {}) =>
+  client.post(`${VM}/fleet-profit-snapshots/recalculate/`, payload)
+
+export const closeFleetMonth = (payload = {}) =>
+  client.post(`${VM}/fleet-monthly-closes/close/`, payload)
+
+export const reopenFleetMonth = (payload = {}) =>
+  client.post(`${VM}/fleet-monthly-closes/reopen/`, payload)

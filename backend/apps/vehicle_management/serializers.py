@@ -5,6 +5,9 @@ from .models import (
     ReturnRequest, ReturnRequestPhoto, ASRequest,
     FleetVehicleRecord, FleetVehicleDocument, FleetSubscriptionContract, FleetReturnRecord,
     FleetInsurancePolicy, FleetAccidentCase,
+    FleetInspectionSchedule, FleetProfitRuleVersion, FleetProfitImportBatch,
+    FleetProfitRawEntry, FleetProfitAdjustment, FleetProfitMonthlySnapshot,
+    FleetMonthlyClose,
 )
 
 
@@ -333,5 +336,116 @@ class FleetAccidentCaseSerializer(serializers.ModelSerializer):
             'coverage', 'victim', 'compensation', 'personal_compensation',
             'property_compensation', 'paid', 'manager', 'status',
             'compensation_note', 'items', 'created_at', 'updated_at',
+        ]
+        read_only_fields = ['created_at', 'updated_at']
+
+
+class FleetInspectionScheduleSerializer(serializers.ModelSerializer):
+    company_code = serializers.CharField(source='company.code', read_only=True)
+    vehicle_vin = serializers.CharField(source='vehicle.vin_tid', read_only=True)
+    vehicle_record_vin = serializers.CharField(source='vehicle_record.vin', read_only=True)
+
+    class Meta:
+        model = FleetInspectionSchedule
+        fields = [
+            'id', 'company', 'company_code', 'vehicle', 'vehicle_record',
+            'vehicle_number', 'vehicle_vin', 'vehicle_record_vin',
+            'scheduled_date', 'completed_date', 'status', 'memo',
+            'source_key', 'raw', 'created_at', 'updated_at',
+        ]
+        read_only_fields = ['created_at', 'updated_at']
+
+
+class FleetProfitRuleVersionSerializer(serializers.ModelSerializer):
+    company_code = serializers.CharField(source='company.code', read_only=True)
+
+    class Meta:
+        model = FleetProfitRuleVersion
+        fields = [
+            'id', 'company', 'company_code', 'version', 'title',
+            'rules', 'is_active', 'created_at',
+        ]
+        read_only_fields = ['created_at']
+
+
+class FleetProfitImportBatchSerializer(serializers.ModelSerializer):
+    company_code = serializers.CharField(source='company.code', read_only=True)
+
+    class Meta:
+        model = FleetProfitImportBatch
+        fields = [
+            'id', 'company', 'company_code', 'source_file', 'file_hash',
+            'status', 'summary', 'created_at',
+        ]
+        read_only_fields = ['created_at']
+
+
+class FleetProfitRawEntrySerializer(serializers.ModelSerializer):
+    company_code = serializers.CharField(source='company.code', read_only=True)
+
+    class Meta:
+        model = FleetProfitRawEntry
+        fields = [
+            'id', 'company', 'company_code', 'vehicle', 'vehicle_record',
+            'batch', 'entry_type', 'source_sheet', 'source_row',
+            'source_key', 'vehicle_number', 'period_month', 'amount',
+            'raw', 'created_at',
+        ]
+        read_only_fields = ['created_at']
+
+
+class FleetProfitAdjustmentSerializer(serializers.ModelSerializer):
+    company_code = serializers.CharField(source='company.code', read_only=True)
+    evidence_file_name = serializers.SerializerMethodField()
+    evidence_file_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = FleetProfitAdjustment
+        fields = [
+            'id', 'company', 'company_code', 'vehicle', 'vehicle_record',
+            'vehicle_number', 'period_month', 'category', 'description',
+            'amount', 'evidence_file', 'evidence_file_name', 'evidence_file_url',
+            'created_at', 'updated_at',
+        ]
+        read_only_fields = ['created_at', 'updated_at']
+
+    def get_evidence_file_name(self, obj):
+        if not obj.evidence_file:
+            return ''
+        return obj.evidence_file.name.rsplit('/', 1)[-1]
+
+    def get_evidence_file_url(self, obj):
+        if not obj.evidence_file:
+            return ''
+        request = self.context.get('request')
+        url = obj.evidence_file.url
+        return request.build_absolute_uri(url) if request else url
+
+
+class FleetProfitMonthlySnapshotSerializer(serializers.ModelSerializer):
+    company_code = serializers.CharField(source='company.code', read_only=True)
+    rule_version_code = serializers.CharField(source='rule_version.version', read_only=True)
+
+    class Meta:
+        model = FleetProfitMonthlySnapshot
+        fields = [
+            'id', 'company', 'company_code', 'vehicle', 'vehicle_record',
+            'rule_version', 'rule_version_code', 'vehicle_number', 'period_month',
+            'revenue', 'subscription_revenue', 'customer_charges',
+            'depreciation_cost', 'insurance_cost', 'repair_cost', 'accident_cost',
+            'other_cost', 'operating_profit', 'net_profit', 'calculation',
+            'is_closed', 'closed_at', 'created_at', 'updated_at',
+        ]
+        read_only_fields = ['created_at', 'updated_at']
+
+
+class FleetMonthlyCloseSerializer(serializers.ModelSerializer):
+    company_code = serializers.CharField(source='company.code', read_only=True)
+
+    class Meta:
+        model = FleetMonthlyClose
+        fields = [
+            'id', 'company', 'company_code', 'period_month', 'target',
+            'status', 'memo', 'closed_at', 'created_at', 'updated_at',
         ]
         read_only_fields = ['created_at', 'updated_at']

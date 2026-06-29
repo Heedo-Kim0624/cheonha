@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="fleet-page">
     <aside class="fleet-sidebar">
       <RouterLink to="/portal/operations" class="back-link">운영 통합관리로 돌아가기</RouterLink>
@@ -330,6 +330,27 @@
             </div>
           </div>
 
+          <section v-if="detailMode === 'profit'" class="panel">
+            <div class="panel-head">
+              <div>
+                <h3>차량 손익</h3>
+                <p>{{ selectedProfit.month || currentMonth }} 기준 계산 미리보기입니다.</p>
+              </div>
+              <span class="badge green">{{ selectedProfit.isClosed ? '마감' : '열림' }}</span>
+            </div>
+            <div class="profit-breakdown">
+              <div><span>수익</span><strong>{{ money(selectedProfit.revenue) }}</strong></div>
+              <div><span>구독료</span><strong>{{ money(selectedProfit.subscriptionRevenue) }}</strong></div>
+              <div><span>고객 청구액</span><strong>{{ money(selectedProfit.customerCharges) }}</strong></div>
+              <div><span>감가</span><strong>{{ money(selectedProfit.depreciationCost) }}</strong></div>
+              <div><span>보험</span><strong>{{ money(selectedProfit.insuranceCost) }}</strong></div>
+              <div><span>수리</span><strong>{{ money(selectedProfit.repairCost) }}</strong></div>
+              <div><span>사고</span><strong>{{ money(selectedProfit.accidentCost) }}</strong></div>
+              <div><span>기타</span><strong>{{ money(selectedProfit.otherCost) }}</strong></div>
+              <div class="total"><span>순손익</span><strong>{{ money(selectedProfit.netProfit) }}</strong></div>
+            </div>
+          </section>
+
           <div class="detail-grid-two">
             <section class="panel">
               <div class="panel-head">
@@ -488,6 +509,60 @@
             <p>계약 기간, 구독료, 서명 상태를 차량번호 기준으로 확인합니다.</p>
           </div>
         </div>
+        <section class="billing-summary">
+          <div class="billing-card">
+            <span>청구 월</span>
+            <strong>{{ billing.monthLabel || currentMonth }}</strong>
+          </div>
+          <div class="billing-card">
+            <span>월 구독료</span>
+            <strong>{{ money(billing.totals?.subscriptionFee) }}</strong>
+          </div>
+          <div class="billing-card">
+            <span>추가 청구</span>
+            <strong>{{ money(billing.totals?.customerCharges) }}</strong>
+            <small>입금 완료 수리비 제외</small>
+          </div>
+          <div class="billing-card">
+            <span>최종 청구액</span>
+            <strong>{{ money(billing.totals?.finalAmount) }}</strong>
+          </div>
+          <button class="btn" type="button" @click="downloadMonthlyBillingExcel">월별 구독료 엑셀</button>
+        </section>
+        <div class="table-wrap billing-table-wrap">
+          <table class="detail-table">
+            <thead>
+              <tr>
+                <th>차량번호</th>
+                <th>이름</th>
+                <th>월 구독료</th>
+                <th>사용일수</th>
+                <th>구독료 청구</th>
+                <th>추가 청구</th>
+                <th>최종 청구</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-if="!billing.rows?.length">
+                <td colspan="7" class="empty-cell">해당 월 구독료 청구 대상이 없습니다.</td>
+              </tr>
+              <tr
+                v-for="row in billing.rows"
+                :key="`${row.contractId}-${row.vehicleNumber}`"
+                class="clickable-row"
+                @click="openBillingRow(row)"
+              >
+                <td><strong>{{ row.vehicleNumber }}</strong></td>
+                <td>{{ row.customer || '-' }}</td>
+                <td class="money-cell">{{ money(row.monthlyFee) }}</td>
+                <td>{{ row.usedDaysLabel }}</td>
+                <td class="money-cell">{{ money(row.subscriptionFee) }}</td>
+                <td class="money-cell">{{ money(row.customerCharges) }}</td>
+                <td class="money-cell"><strong>{{ money(row.finalAmount) }}</strong></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
         <SimpleTable
           :columns="subscriptionColumns"
           :rows="filteredSubscriptions"
@@ -542,6 +617,96 @@
         />
       </section>
 
+      <section v-else-if="activeTab === 'profit'" class="content-stack">
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <h3>차량 손익관리</h3>
+              <p>월별 구독료, 고객 청구액, 감가·보험·수리·사고 비용을 합산해 차량별 손익을 계산합니다.</p>
+            </div>
+            <div class="inline-actions">
+              <button class="btn" type="button" :disabled="saving" @click="recalculateProfit">계산 미리보기</button>
+              <button class="btn" type="button" :disabled="saving" @click="reopenProfitMonth">마감 복구</button>
+              <button class="btn primary" type="button" :disabled="saving" @click="closeProfitMonth">월 마감</button>
+            </div>
+          </div>
+
+          <div class="metric-grid compact">
+            <div class="metric-card static">
+              <span>수익</span>
+              <strong>{{ money(profitTotals.revenue) }}</strong>
+              <small>구독료 + 고객 청구액</small>
+            </div>
+            <div class="metric-card static">
+              <span>비용</span>
+              <strong>{{ money(profitTotals.cost) }}</strong>
+              <small>감가 + 보험 + 수리 + 사고</small>
+            </div>
+            <div class="metric-card static">
+              <span>영업손익</span>
+              <strong>{{ money(profitTotals.operatingProfit) }}</strong>
+              <small>계산 기준 {{ profitTotals.ruleVersion || '-' }}</small>
+            </div>
+            <div class="metric-card static">
+              <span>손익 음수 차량</span>
+              <strong>{{ profitTotals.negativeVehicles || 0 }}대</strong>
+              <small>{{ profitTotals.month || currentMonth }}</small>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <h3>차량별 손익</h3>
+              <p>행을 클릭하면 해당 차량 상세의 손익 하위 탭으로 이동합니다.</p>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table class="detail-table profit-table">
+              <thead>
+                <tr>
+                  <th>차량번호</th>
+                  <th>수익</th>
+                  <th>구독료</th>
+                  <th>고객 청구액</th>
+                  <th>감가</th>
+                  <th>보험</th>
+                  <th>수리</th>
+                  <th>사고</th>
+                  <th>기타</th>
+                  <th>순손익</th>
+                  <th>마감</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-if="!profitRows.length">
+                  <td colspan="11" class="empty-cell">손익 계산 대상 차량이 없습니다.</td>
+                </tr>
+                <tr
+                  v-for="row in profitRows"
+                  :key="row.plate"
+                  class="clickable-row"
+                  @click="openProfitDetail(row.group)"
+                >
+                  <td><strong>{{ row.plate }}</strong></td>
+                  <td class="money-cell">{{ money(row.revenue) }}</td>
+                  <td class="money-cell">{{ money(row.subscriptionRevenue) }}</td>
+                  <td class="money-cell">{{ money(row.customerCharges) }}</td>
+                  <td class="money-cell">{{ money(row.depreciationCost) }}</td>
+                  <td class="money-cell">{{ money(row.insuranceCost) }}</td>
+                  <td class="money-cell">{{ money(row.repairCost) }}</td>
+                  <td class="money-cell">{{ money(row.accidentCost) }}</td>
+                  <td class="money-cell">{{ money(row.otherCost) }}</td>
+                  <td class="money-cell"><strong>{{ money(row.netProfit) }}</strong></td>
+                  <td>{{ row.isClosed ? '마감' : '열림' }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
       <section v-else class="panel">
         <div class="panel-head">
           <div>
@@ -589,13 +754,13 @@
                     <small>{{ documentByType(form.group, docType.key)?.name || '미등록' }}</small>
                   </div>
                   <div class="inline-actions">
-                    <button type="button" class="btn soft" @click="previewFile(documentByType(form.group, docType.key))">미리보기</button>
-                    <button type="button" class="btn" @click="downloadFile(documentByType(form.group, docType.key))">다운로드</button>
+                    <button v-if="documentByType(form.group, docType.key)?.url" type="button" class="btn soft" @click="previewFile(documentByType(form.group, docType.key))">미리보기</button>
+                    <button v-if="documentByType(form.group, docType.key)?.url" type="button" class="btn" @click="downloadFile(documentByType(form.group, docType.key))">다운로드</button>
                     <label class="btn primary file-btn">
                       업로드·교체
                       <input type="file" accept=".pdf,.jpg,.jpeg,.png,.webp" hidden @change="uploadDocument(docType.key, $event)">
                     </label>
-                    <button type="button" class="btn danger" @click="removeDocument(docType.key)">삭제</button>
+                    <button v-if="documentByType(form.group, docType.key)?.url" type="button" class="btn danger" @click="removeDocument(docType.key)">삭제</button>
                   </div>
                 </div>
               </div>
@@ -640,10 +805,10 @@
                   <strong>{{ photo.label }}</strong>
                   <small>{{ photo.name || '파일 없음' }}</small>
                   <div class="inline-actions compact-actions">
-                    <button type="button" class="btn soft" @click="previewFile(photo)">미리보기</button>
-                    <button type="button" class="btn" @click="downloadFile(photo)">다운로드</button>
+                    <button v-if="photo.url" type="button" class="btn soft" @click="previewFile(photo)">미리보기</button>
+                    <button v-if="photo.url" type="button" class="btn" @click="downloadFile(photo)">다운로드</button>
                     <label class="btn primary file-btn">교체<input type="file" accept="image/*" hidden @change="setReturnPhoto(index, $event)"></label>
-                    <button type="button" class="btn danger" @click="clearReturnPhoto(index)">삭제</button>
+                    <button v-if="photo.url" type="button" class="btn danger" @click="clearReturnPhoto(index)">삭제</button>
                   </div>
                 </div>
               </div>
@@ -791,6 +956,10 @@ import {
   deleteFleetInsurance,
   deleteFleetVehicle,
   downloadFleetAccidentTemplate,
+  downloadFleetMonthlyBilling,
+  closeFleetMonth,
+  reopenFleetMonth,
+  recalculateFleetProfit,
   updateFleetAccident,
   updateFleetDocument,
   updateFleetInsurance,
@@ -809,6 +978,7 @@ const tabs = [
   { key: 'returns', label: '반납/수리비', caption: '반납과 청구 이력' },
   { key: 'insurance', label: '보험', caption: '보험료 납부 현황' },
   { key: 'accidents', label: '사고 관리', caption: '사고와 보상 이력' },
+  { key: 'profit', label: '차량 손익관리', caption: '월별 수익과 비용 마감' },
   { key: 'upload', label: '엑셀 업로드', caption: '양식 다운로드와 업로드' },
 ]
 
@@ -819,6 +989,7 @@ const routeNames = {
   returns: 'CleverPortalVehicleReturns',
   insurance: 'CleverPortalVehicleInsurance',
   accidents: 'CleverPortalVehicleAccidents',
+  profit: 'CleverPortalVehicleProfit',
   upload: 'CleverPortalVehicleUpload',
 }
 
@@ -851,6 +1022,18 @@ const activeTab = computed(() => route.meta.fleetTab || 'dashboard')
 const currentTab = computed(() => tabs.find((tab) => tab.key === activeTab.value))
 const selectedGroup = computed(() => groups.value.find((group) => group.plate === selectedPlate.value))
 const companyId = computed(() => fleetPayload.value?.company?.id || '')
+const currentMonth = computed(() => new Date().toISOString().slice(0, 7))
+const billing = computed(() => fleetPayload.value?.billing || { rows: [], totals: {}, monthLabel: currentMonth.value })
+const profitTotals = computed(() => fleetPayload.value?.profit || {})
+const profitRows = computed(() => groups.value
+  .filter((group) => group?.profit)
+  .map((group) => ({
+    group,
+    plate: group.plate,
+    ...group.profit,
+  }))
+  .sort((a, b) => Number(a.netProfit || 0) - Number(b.netProfit || 0) || String(a.plate).localeCompare(String(b.plate))))
+const selectedProfit = computed(() => selectedGroup.value?.profit || {})
 
 function groupCompanyId(group) {
   return group?.companyId || group?.company_id || companyId.value
@@ -2201,6 +2384,75 @@ function toApiDateTime(value) {
   return Number.isNaN(dateValue.getTime()) ? null : dateValue.toISOString()
 }
 
+function fleetCompanyCode() {
+  return fleetPayload.value?.company?.code || 'CHEONHA'
+}
+
+async function downloadMonthlyBillingExcel() {
+  try {
+    const response = await downloadFleetMonthlyBilling({
+      company: fleetCompanyCode(),
+      month: billing.value?.monthLabel || currentMonth.value,
+    })
+    const blobUrl = URL.createObjectURL(response.data)
+    const link = document.createElement('a')
+    link.href = blobUrl
+    link.download = `fleet_monthly_billing_${(billing.value?.monthLabel || currentMonth.value).replace('-', '')}.xlsx`
+    link.click()
+    URL.revokeObjectURL(blobUrl)
+  } catch (err) {
+    error.value = err?.response?.data?.detail || err?.message || '월별 구독료 엑셀 다운로드에 실패했습니다.'
+  }
+}
+
+async function recalculateProfit() {
+  saving.value = true
+  try {
+    await recalculateFleetProfit({ company: fleetCompanyCode(), month: profitTotals.value?.month || currentMonth.value })
+    await reload()
+  } catch (err) {
+    error.value = err?.response?.data?.detail || err?.message || '손익 재계산에 실패했습니다.'
+  } finally {
+    saving.value = false
+  }
+}
+
+async function closeProfitMonth() {
+  saving.value = true
+  try {
+    await closeFleetMonth({ company: fleetCompanyCode(), month: profitTotals.value?.month || currentMonth.value, target: 'profit' })
+    await reload()
+  } catch (err) {
+    error.value = err?.response?.data?.detail || err?.message || '월 마감 처리에 실패했습니다.'
+  } finally {
+    saving.value = false
+  }
+}
+
+async function reopenProfitMonth() {
+  saving.value = true
+  try {
+    await reopenFleetMonth({ company: fleetCompanyCode(), month: profitTotals.value?.month || currentMonth.value, target: 'profit' })
+    await reload()
+  } catch (err) {
+    error.value = err?.response?.data?.detail || err?.message || '월 마감 복구에 실패했습니다.'
+  } finally {
+    saving.value = false
+  }
+}
+
+function openProfitDetail(group) {
+  if (!group) return
+  selectedPlate.value = group.plate
+  detailMode.value = 'profit'
+  goTab('vehicles')
+}
+
+function openBillingRow(row) {
+  const group = groups.value.find((item) => item.plate === row.vehicleNumber)
+  if (group) selectGroup(group)
+}
+
 async function downloadAccidentTemplate() {
   try {
     const response = await downloadFleetAccidentTemplate()
@@ -2410,6 +2662,10 @@ input {
   gap: 12px;
 }
 
+.metric-grid.compact {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
 .metric-card {
   border: 1px solid #e4e8f0;
   border-radius: 14px;
@@ -2430,6 +2686,59 @@ input {
   display: block;
   margin: 8px 0 6px;
   font-size: 26px;
+}
+
+.metric-card.static {
+  cursor: default;
+}
+
+.billing-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) auto;
+  gap: 12px;
+  align-items: stretch;
+  margin: 12px 0 18px;
+}
+
+.billing-card,
+.profit-breakdown div {
+  border: 1px solid #e4e8f0;
+  border-radius: 14px;
+  background: #f9fbfe;
+  padding: 14px;
+}
+
+.billing-card span,
+.billing-card small,
+.profit-breakdown span {
+  display: block;
+  color: #667085;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.billing-card strong,
+.profit-breakdown strong {
+  display: block;
+  margin-top: 8px;
+  color: #101827;
+  font-size: 20px;
+  font-weight: 900;
+}
+
+.profit-breakdown {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.profit-breakdown .total {
+  border-color: #c5d941;
+  background: #fbfde9;
+}
+
+.billing-table-wrap {
+  margin-bottom: 18px;
 }
 
 .dashboard-map-calendar {
@@ -2664,20 +2973,21 @@ input {
 
 .vehicle-hero {
   display: grid;
-  grid-template-columns: minmax(260px, 1fr) minmax(180px, auto) minmax(480px, auto);
-  align-items: center;
+  grid-template-columns: minmax(260px, 1fr) minmax(160px, auto) minmax(0, 1.2fr);
+  align-items: start;
   gap: 18px;
+  border: 1px solid #e4e8f0;
   border-radius: 18px;
-  background: linear-gradient(135deg, #263d86 0%, #4965e4 100%);
-  color: #fff;
+  background: #fff;
+  color: #101827;
   padding: 28px;
-  box-shadow: 0 18px 40px rgba(37, 65, 150, .22);
+  box-shadow: 0 14px 36px rgba(15, 23, 42, .06);
 }
 
 .vehicle-hero small {
   display: block;
   margin-bottom: 12px;
-  color: rgba(255, 255, 255, .78);
+  color: #667085;
   font-weight: 900;
 }
 
@@ -2689,7 +2999,7 @@ input {
 
 .vehicle-hero p {
   margin: 8px 0 0;
-  color: rgba(255, 255, 255, .78);
+  color: #667085;
   font-weight: 700;
 }
 
@@ -2697,12 +3007,12 @@ input {
   display: grid;
   gap: 8px;
   border-radius: 14px;
-  background: rgba(255, 255, 255, .14);
+  background: #f7f9fc;
   padding: 14px;
 }
 
 .hero-status span {
-  color: rgba(255, 255, 255, .8);
+  color: #667085;
   font-size: 12px;
   font-weight: 900;
 }
@@ -2716,9 +3026,9 @@ input {
 }
 
 .hero-actions .btn {
-  color: #fff;
-  border-color: rgba(255, 255, 255, .22);
-  background: rgba(255, 255, 255, .14);
+  color: #1f2a44;
+  border-color: #d7deea;
+  background: #fff;
 }
 
 .hero-actions .btn.primary {

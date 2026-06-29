@@ -531,6 +531,215 @@ class FleetAccidentCase(models.Model):
         return f'{self.vehicle_number} accident {self.accident_at:%Y-%m-%d}'
 
 
+class FleetInspectionSchedule(models.Model):
+    """TS inspection schedule linked to a vehicle number and optional history row."""
+    STATUS_CHOICES = [
+        ('scheduled', 'Scheduled'),
+        ('completed', 'Completed'),
+        ('cancelled', 'Cancelled'),
+        ('overdue', 'Overdue'),
+    ]
+
+    company = models.ForeignKey(Company, on_delete=models.PROTECT, related_name='fleet_inspections')
+    vehicle = models.ForeignKey(Vehicle, on_delete=models.SET_NULL, null=True, blank=True, related_name='fleet_inspections')
+    vehicle_record = models.ForeignKey(FleetVehicleRecord, on_delete=models.SET_NULL, null=True, blank=True, related_name='inspections')
+    vehicle_number = models.CharField(max_length=32, db_index=True)
+    scheduled_date = models.DateField(db_index=True)
+    completed_date = models.DateField(null=True, blank=True, db_index=True)
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default='scheduled', db_index=True)
+    memo = models.TextField(blank=True, default='')
+    source_key = models.CharField(max_length=128, blank=True, default='', db_index=True)
+    raw = models.JSONField(default=dict, blank=True)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = vm_table('fleet_inspection_schedule')
+        ordering = ['scheduled_date', 'vehicle_number', 'id']
+        indexes = [
+            models.Index(fields=['company', 'scheduled_date']),
+            models.Index(fields=['company', 'status']),
+            models.Index(fields=['company', 'vehicle_number']),
+        ]
+
+    def __str__(self):
+        return f'{self.vehicle_number} TS {self.scheduled_date}'
+
+
+class FleetProfitRuleVersion(models.Model):
+    """Versioned calculation rule set used by vehicle profit management."""
+    company = models.ForeignKey(Company, on_delete=models.PROTECT, related_name='fleet_profit_rule_versions')
+    version = models.CharField(max_length=32, db_index=True)
+    title = models.CharField(max_length=128, blank=True, default='')
+    rules = models.JSONField(default=dict, blank=True)
+    is_active = models.BooleanField(default=True, db_index=True)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = vm_table('fleet_profit_rule_version')
+        ordering = ['-created_at', '-id']
+        constraints = [
+            models.UniqueConstraint(fields=['company', 'version'], name='vm_fleet_profit_rule_company_version_unique'),
+        ]
+
+    def __str__(self):
+        return f'{self.company_id}:{self.version}'
+
+
+class FleetProfitImportBatch(models.Model):
+    """Auditable import batch for profit source workbooks."""
+    company = models.ForeignKey(Company, on_delete=models.PROTECT, related_name='fleet_profit_import_batches')
+    source_file = models.CharField(max_length=255)
+    file_hash = models.CharField(max_length=64, db_index=True)
+    status = models.CharField(max_length=24, default='applied', db_index=True)
+    summary = models.JSONField(default=dict, blank=True)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = vm_table('fleet_profit_import_batch')
+        ordering = ['-created_at']
+        constraints = [
+            models.UniqueConstraint(fields=['company', 'file_hash'], name='vm_fleet_profit_batch_company_hash_unique'),
+        ]
+
+    def __str__(self):
+        return f'{self.source_file} ({self.status})'
+
+
+class FleetProfitRawEntry(models.Model):
+    """Raw source row preserved from profit workbook sheets."""
+    ENTRY_TYPE_CHOICES = [
+        ('cover', 'Cover'),
+        ('depreciation', 'Depreciation'),
+        ('residual', 'Residual'),
+        ('insurance', 'Insurance'),
+        ('subscription', 'Subscription'),
+        ('accident', 'Accident'),
+        ('manual', 'Manual'),
+    ]
+
+    company = models.ForeignKey(Company, on_delete=models.PROTECT, related_name='fleet_profit_raw_entries')
+    vehicle = models.ForeignKey(Vehicle, on_delete=models.SET_NULL, null=True, blank=True, related_name='fleet_profit_raw_entries')
+    vehicle_record = models.ForeignKey(FleetVehicleRecord, on_delete=models.SET_NULL, null=True, blank=True, related_name='profit_raw_entries')
+    batch = models.ForeignKey(FleetProfitImportBatch, on_delete=models.SET_NULL, null=True, blank=True, related_name='raw_entries')
+    entry_type = models.CharField(max_length=32, choices=ENTRY_TYPE_CHOICES, db_index=True)
+    source_sheet = models.CharField(max_length=64, blank=True, default='')
+    source_row = models.PositiveIntegerField(default=0)
+    source_key = models.CharField(max_length=160, db_index=True)
+    vehicle_number = models.CharField(max_length=32, blank=True, default='', db_index=True)
+    period_month = models.DateField(null=True, blank=True, db_index=True)
+    amount = models.IntegerField(default=0)
+    raw = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = vm_table('fleet_profit_raw_entry')
+        ordering = ['source_sheet', 'source_row', 'id']
+        constraints = [
+            models.UniqueConstraint(fields=['company', 'source_key'], name='vm_fleet_profit_raw_company_key_unique'),
+        ]
+        indexes = [
+            models.Index(fields=['company', 'entry_type']),
+            models.Index(fields=['company', 'vehicle_number']),
+            models.Index(fields=['company', 'period_month']),
+        ]
+
+    def __str__(self):
+        return f'{self.entry_type}:{self.vehicle_number}:{self.source_key}'
+
+
+class FleetProfitAdjustment(models.Model):
+    """Manual monthly adjustment shown in profit detail with audit trail."""
+    company = models.ForeignKey(Company, on_delete=models.PROTECT, related_name='fleet_profit_adjustments')
+    vehicle = models.ForeignKey(Vehicle, on_delete=models.SET_NULL, null=True, blank=True, related_name='fleet_profit_adjustments')
+    vehicle_record = models.ForeignKey(FleetVehicleRecord, on_delete=models.SET_NULL, null=True, blank=True, related_name='profit_adjustments')
+    vehicle_number = models.CharField(max_length=32, db_index=True)
+    period_month = models.DateField(db_index=True)
+    category = models.CharField(max_length=64, blank=True, default='')
+    description = models.TextField(blank=True, default='')
+    amount = models.IntegerField(default=0)
+    evidence_file = models.FileField(upload_to='fleet_profit_evidence/%Y/%m/%d/', blank=True, default='')
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = vm_table('fleet_profit_adjustment')
+        ordering = ['-period_month', '-created_at']
+        indexes = [
+            models.Index(fields=['company', 'period_month']),
+            models.Index(fields=['company', 'vehicle_number']),
+        ]
+
+    def __str__(self):
+        return f'{self.vehicle_number} {self.period_month} {self.amount}'
+
+
+class FleetProfitMonthlySnapshot(models.Model):
+    """Calculated monthly profit snapshot. Can be regenerated unless closed."""
+    company = models.ForeignKey(Company, on_delete=models.PROTECT, related_name='fleet_profit_monthly_snapshots')
+    vehicle = models.ForeignKey(Vehicle, on_delete=models.SET_NULL, null=True, blank=True, related_name='fleet_profit_monthly_snapshots')
+    vehicle_record = models.ForeignKey(FleetVehicleRecord, on_delete=models.SET_NULL, null=True, blank=True, related_name='profit_monthly_snapshots')
+    rule_version = models.ForeignKey(FleetProfitRuleVersion, on_delete=models.SET_NULL, null=True, blank=True, related_name='snapshots')
+    vehicle_number = models.CharField(max_length=32, db_index=True)
+    period_month = models.DateField(db_index=True)
+    revenue = models.IntegerField(default=0)
+    subscription_revenue = models.IntegerField(default=0)
+    customer_charges = models.IntegerField(default=0)
+    depreciation_cost = models.IntegerField(default=0)
+    insurance_cost = models.IntegerField(default=0)
+    repair_cost = models.IntegerField(default=0)
+    accident_cost = models.IntegerField(default=0)
+    other_cost = models.IntegerField(default=0)
+    operating_profit = models.IntegerField(default=0)
+    net_profit = models.IntegerField(default=0)
+    calculation = models.JSONField(default=dict, blank=True)
+    is_closed = models.BooleanField(default=False, db_index=True)
+    closed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = vm_table('fleet_profit_monthly_snapshot')
+        ordering = ['-period_month', 'vehicle_number']
+        constraints = [
+            models.UniqueConstraint(fields=['company', 'vehicle_number', 'period_month'], name='vm_fleet_profit_month_vehicle_unique'),
+        ]
+        indexes = [
+            models.Index(fields=['company', 'period_month']),
+            models.Index(fields=['company', 'is_closed']),
+        ]
+
+    def __str__(self):
+        return f'{self.vehicle_number} {self.period_month:%Y-%m} profit {self.net_profit}'
+
+
+class FleetMonthlyClose(models.Model):
+    """Month close state for vehicle billing and profit calculations."""
+    company = models.ForeignKey(Company, on_delete=models.PROTECT, related_name='fleet_monthly_closes')
+    period_month = models.DateField(db_index=True)
+    target = models.CharField(max_length=32, default='profit', db_index=True)
+    status = models.CharField(max_length=24, default='open', db_index=True)
+    memo = models.TextField(blank=True, default='')
+    closed_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    closed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = vm_table('fleet_monthly_close')
+        ordering = ['-period_month', 'target']
+        constraints = [
+            models.UniqueConstraint(fields=['company', 'period_month', 'target'], name='vm_fleet_monthly_close_unique'),
+        ]
+
+    def __str__(self):
+        return f'{self.company_id}:{self.target}:{self.period_month}:{self.status}'
+
+
 class ASRequest(models.Model):
     STATUS_CHOICES = [
         ('REPAIRING', 'Repairing / waiting'),

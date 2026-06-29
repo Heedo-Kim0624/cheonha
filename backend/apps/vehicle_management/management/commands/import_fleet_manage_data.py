@@ -9,8 +9,10 @@ from __future__ import annotations
 
 import math
 import re
+import hashlib
 from datetime import date, datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 import pandas as pd
 from django.contrib.auth import get_user_model
@@ -22,6 +24,8 @@ from apps.vehicle_management.models import (
     Company,
     FleetAccidentCase,
     FleetInsurancePolicy,
+    FleetProfitImportBatch,
+    FleetProfitRawEntry,
     FleetSubscriptionContract,
     FleetVehicleRecord,
     Vehicle,
@@ -140,6 +144,24 @@ def vehicle_short(number: str) -> str:
     return digits[-4:] if len(digits) >= 4 else digits
 
 
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open('rb') as fp:
+        for chunk in iter(lambda: fp.read(1024 * 1024), b''):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def json_clean(value):
+    if value is None:
+        return ''
+    if isinstance(value, float) and math.isnan(value):
+        return ''
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    return value
+
+
 def normalize_status(value) -> str:
     text = clean_text(value)
     return STATUS_TO_LABEL.get(text, STATUS_TO_LABEL.get(text.lower(), text if text in LABEL_TO_FIELDS else '유휴'))
@@ -228,6 +250,8 @@ class Importer:
             'insurances_updated': 0,
             'accidents_created': 0,
             'accidents_updated': 0,
+            'profit_raw_created': 0,
+            'profit_raw_updated': 0,
             'skipped': 0,
             'warnings': [],
         }
@@ -477,6 +501,114 @@ class Importer:
         self.summary['accidents_created'] += 1
         return obj
 
+    def upsert_profit_raw(self, *, batch, entry_type, sheet, row_number, vehicle_number, amount=0, period_month=None, raw=None):
+        vehicle_number = clean_text(vehicle_number)
+        if not vehicle_number:
+            self.summary['skipped'] += 1
+            return None
+        source_key = f'{SOURCE_TAG}:profit:{batch.file_hash}:{sheet}:{row_number}:{entry_type}:{vehicle_number}'
+        vehicle = find_vehicle(self.company, vehicle_number)
+        record = find_record(self.company, vehicle_number, None, vehicle.vin_tid if vehicle else '')
+        existing = FleetProfitRawEntry.objects.filter(company=self.company, source_key=source_key).first()
+        if self.dry_run:
+            self.bump('profit_raw_created', 'profit_raw_updated', existing is None)
+            return existing
+        defaults = {
+            'batch': batch,
+            'entry_type': entry_type,
+            'source_sheet': sheet,
+            'source_row': row_number,
+            'vehicle': vehicle,
+            'vehicle_record': record,
+            'vehicle_number': vehicle_number,
+            'period_month': period_month,
+            'amount': parse_int(amount),
+            'raw': raw or {},
+        }
+        if existing:
+            for field, value in defaults.items():
+                setattr(existing, field, value)
+            existing.save(update_fields=[*defaults.keys()])
+            self.summary['profit_raw_updated'] += 1
+            return existing
+        obj = FleetProfitRawEntry.objects.create(
+            company=self.company,
+            source_key=source_key,
+            **defaults,
+        )
+        self.summary['profit_raw_created'] += 1
+        return obj
+
+    def import_profit_source_sheets(self, path: Path):
+        file_hash = file_sha256(path)
+        if self.dry_run:
+            batch = SimpleNamespace(source_file=path.name, file_hash=file_hash)
+        else:
+            batch, _created = FleetProfitImportBatch.objects.get_or_create(
+                company=self.company,
+                file_hash=file_hash,
+                defaults={
+                    'source_file': path.name,
+                    'status': 'applied',
+                    'summary': {'source': SOURCE_TAG, 'purpose': 'fleet_profit_source'},
+                    'created_by': self.user,
+                },
+            )
+        sheets = pd.read_excel(path, sheet_name=None, header=None, dtype=object)
+
+        def raw_payload(row):
+            return {str(index + 1): json_clean(value) for index, value in enumerate(row.tolist())}
+
+        monthly_depreciation = sheets.get('월감가')
+        if monthly_depreciation is not None:
+            for idx, row in monthly_depreciation.iterrows():
+                vehicle_number = clean_text(row.iloc[0] if len(row) else '')
+                if not vehicle_number:
+                    continue
+                self.upsert_profit_raw(
+                    batch=batch,
+                    entry_type='depreciation',
+                    sheet='월감가',
+                    row_number=int(idx) + 1,
+                    vehicle_number=vehicle_number,
+                    amount=row.iloc[1] if len(row) > 1 else 0,
+                    raw=raw_payload(row),
+                )
+
+        residual = sheets.get('잔가')
+        if residual is not None:
+            for idx, row in residual.iloc[1:].iterrows():
+                vehicle_number = clean_text(row.iloc[0] if len(row) else '')
+                if not vehicle_number:
+                    continue
+                self.upsert_profit_raw(
+                    batch=batch,
+                    entry_type='residual',
+                    sheet='잔가',
+                    row_number=int(idx) + 1,
+                    vehicle_number=vehicle_number,
+                    amount=row.iloc[1] if len(row) > 1 else 0,
+                    raw=raw_payload(row),
+                )
+
+        insurance = sheets.get('보험료')
+        if insurance is not None:
+            for idx, row in insurance.iloc[2:].iterrows():
+                vehicle_number = clean_text(row.iloc[1] if len(row) > 1 else '')
+                if not vehicle_number:
+                    continue
+                total_premium = parse_int(row.iloc[5] if len(row) > 5 else 0)
+                monthly_cost = int(total_premium / 12) if total_premium else 0
+                self.upsert_profit_raw(
+                    batch=batch,
+                    entry_type='insurance',
+                    sheet='보험료',
+                    row_number=int(idx) + 1,
+                    vehicle_number=vehicle_number,
+                    amount=monthly_cost,
+                    raw=raw_payload(row),
+                )
+
     def import_master_file(self, path: Path):
         filename = path.name
         frame = pd.read_excel(path, sheet_name=0, header=None, dtype=object)
@@ -692,6 +824,7 @@ class Command(BaseCommand):
         self.stdout.write(f'[{mode}] Importing fleet files for {company.name} ({company.code})')
         with transaction.atomic():
             importer.import_master_file(files['master'])
+            importer.import_profit_source_sheets(files['master'])
             importer.import_subscription_history(files['subscriptions'])
             importer.import_accident_history(files['accidents'])
             if dry_run:
