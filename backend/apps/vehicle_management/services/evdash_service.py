@@ -371,11 +371,11 @@ def _active_diagnostics_by_terminal(conn, terminal_ids):
             occurrence_time,
             is_resolved,
             maintenance_completion_time,
-            created_at,
+            created,
             count(*) OVER (PARTITION BY terminal_id) AS _diagnostic_count,
             row_number() OVER (
               PARTITION BY terminal_id
-              ORDER BY occurrence_time DESC NULLS LAST, created_at DESC NULLS LAST
+              ORDER BY occurrence_time DESC NULLS LAST, created DESC NULLS LAST
             ) AS rn
           FROM {table}
           WHERE terminal_id = ANY(%s)
@@ -384,7 +384,7 @@ def _active_diagnostics_by_terminal(conn, terminal_ids):
         SELECT *
         FROM ranked
         WHERE rn <= 12
-        ORDER BY terminal_id, occurrence_time DESC NULLS LAST, created_at DESC NULLS LAST
+        ORDER BY terminal_id, occurrence_time DESC NULLS LAST, created DESC NULLS LAST
         """
     ).format(table=sql.Identifier(EVDASH_DIAGNOSTIC_TABLE))
 
