@@ -1,0 +1,11 @@
+.git
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+db.sqlite3
+logs/
+media/
+static/
+staticfiles/
+*.sqlite3

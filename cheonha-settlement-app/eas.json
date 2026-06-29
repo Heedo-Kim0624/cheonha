@@ -18,8 +18,30 @@
       }
     },
     "production": {
+      "env": {
+        "APP_VARIANT": "production",
+        "APP_API_BASE_URL": "http://43.201.160.163"
+      },
       "android": {
         "buildType": "apk"
+      }
+    },
+    "production-apk": {
+      "env": {
+        "APP_VARIANT": "production",
+        "APP_API_BASE_URL": "http://43.201.160.163"
+      },
+      "android": {
+        "buildType": "apk"
+      }
+    },
+    "production-aab": {
+      "env": {
+        "APP_VARIANT": "production",
+        "APP_API_BASE_URL": "http://43.201.160.163"
+      },
+      "android": {
+        "buildType": "app-bundle"
       }
     }
   }

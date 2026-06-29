@@ -1,11 +1,63 @@
+from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
+from apps.common.company_scope import get_company_app_from_request
 
 User = get_user_model()
+
+
+def _authenticate_identity(request):
+    email = request.data.get('email')
+    password = request.data.get('password')
+
+    if not email or not password:
+        return None, Response(
+            {'detail': '이메일과 비밀번호를 입력해주세요.'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    # email로 유저를 찾아서 username으로 인증
+    try:
+        user_obj = User.objects.get(email=email)
+        user = authenticate(request, username=user_obj.username, password=password)
+    except User.DoesNotExist:
+        # username으로 직접 시도
+        user = authenticate(request, username=email, password=password)
+
+    if user is None or not user.is_active:
+        return None, Response(
+            {'detail': '사용자 인증에 실패했습니다. 이메일 또는 비밀번호를 확인하세요.'},
+            status=status.HTTP_401_UNAUTHORIZED
+        )
+
+    return user, None
+
+
+def _login_payload(user):
+    refresh = RefreshToken.for_user(user)
+    access_token = str(refresh.access_token)
+
+    user_data = {
+        'id': user.id,
+        'email': user.email,
+        'username': user.username,
+        'role': getattr(user, 'role', None),
+        'company_app': getattr(user, 'company_app', None),
+        'team': user.team_id if hasattr(user, 'team_id') else None,
+        'team_code': user.team.code if hasattr(user, 'team') and user.team else None,
+        'first_name': user.first_name,
+        'last_name': user.last_name,
+    }
+
+    return {
+        'token': access_token,
+        'refresh': str(refresh),
+        'user': user_data,
+    }
 
 
 class LoginView(APIView):
@@ -13,49 +65,30 @@ class LoginView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
-        email = request.data.get('email')
-        password = request.data.get('password')
+        user, error_response = _authenticate_identity(request)
+        if error_response:
+            return error_response
+        return Response(_login_payload(user))
 
-        if not email or not password:
+
+class CleverLoginView(APIView):
+    """CLEVER 상위 포털 전용 로그인 API"""
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        user, error_response = _authenticate_identity(request)
+        if error_response:
+            return error_response
+
+        allowed_usernames = set(getattr(settings, 'CLEVER_ADMIN_USERNAMES', ['clever_admin']))
+        allowed_usernames.add('admin2')
+        if user.username not in allowed_usernames:
             return Response(
-                {'detail': '이메일과 비밀번호를 입력해주세요.'},
-                status=status.HTTP_400_BAD_REQUEST
+                {'detail': 'CLEVER 관리자 계정만 로그인할 수 있습니다.'},
+                status=status.HTTP_403_FORBIDDEN
             )
 
-        # email로 유저를 찾아서 username으로 인증
-        user = None
-        try:
-            user_obj = User.objects.get(email=email)
-            user = authenticate(request, username=user_obj.username, password=password)
-        except User.DoesNotExist:
-            # username으로 직접 시도
-            user = authenticate(request, username=email, password=password)
-
-        if user is None or not user.is_active:
-            return Response(
-                {'detail': '사용자 인증에 실패했습니다. 이메일 또는 비밀번호를 확인하세요.'},
-                status=status.HTTP_401_UNAUTHORIZED
-            )
-
-        refresh = RefreshToken.for_user(user)
-        access_token = str(refresh.access_token)
-
-        user_data = {
-            'id': user.id,
-            'email': user.email,
-            'username': user.username,
-            'role': getattr(user, 'role', None),
-            'team': user.team_id if hasattr(user, 'team_id') else None,
-            'team_code': user.team.code if hasattr(user, 'team') and user.team else None,
-            'first_name': user.first_name,
-            'last_name': user.last_name,
-        }
-
-        return Response({
-            'token': access_token,
-            'refresh': str(refresh),
-            'user': user_data,
-        })
+        return Response(_login_payload(user))
 
 
 class RefreshTokenView(APIView):
@@ -94,6 +127,7 @@ class ProfileView(APIView):
             'email': user.email,
             'username': user.username,
             'role': getattr(user, 'role', None),
+            'company_app': getattr(user, 'company_app', None),
             'team': user.team_id if hasattr(user, 'team_id') else None,
             'team_code': user.team.code if hasattr(user, 'team') and user.team else None,
             'first_name': user.first_name,
@@ -135,7 +169,7 @@ class SignupView(APIView):
         team = None
         if team_code:
             try:
-                team = Team.objects.get(code=team_code)
+                team = Team.objects.get(code=team_code, company_app=get_company_app_from_request(request))
             except Team.DoesNotExist:
                 return Response({'detail': '존재하지 않는 팀입니다.'}, status=status.HTTP_400_BAD_REQUEST)
 

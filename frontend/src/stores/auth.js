@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { login as apiLogin } from '@/api/auth'
+import { cleverLogin as apiCleverLogin, login as apiLogin } from '@/api/auth'
 
 export const useAuthStore = defineStore('auth', () => {
   const user = ref(JSON.parse(localStorage.getItem('user') || 'null'))
@@ -11,13 +11,22 @@ export const useAuthStore = defineStore('auth', () => {
   const isAdmin = computed(() => user.value?.role === 'ADMIN' || user.value?.is_staff === true)
   const isTeamLeader = computed(() => user.value?.role === 'TEAM_LEADER')
 
-  const login = async (email, password) => {
-    const response = await apiLogin(email, password)
+  const setSession = (response) => {
     token.value = response.data.token
     user.value = response.data.user
     localStorage.setItem('token', token.value)
     localStorage.setItem('user', JSON.stringify(response.data.user))
     return response.data
+  }
+
+  const login = async (email, password) => {
+    const response = await apiLogin(email, password)
+    return setSession(response)
+  }
+
+  const cleverLogin = async (email, password) => {
+    const response = await apiCleverLogin(email, password)
+    return setSession(response)
   }
 
   const logout = () => {
@@ -33,6 +42,6 @@ export const useAuthStore = defineStore('auth', () => {
 
   return {
     user, token, isAuthenticated, isAdmin, isTeamLeader,
-    teamFilter, login, logout, setTeamFilter
+    teamFilter, login, cleverLogin, logout, setTeamFilter
   }
 })

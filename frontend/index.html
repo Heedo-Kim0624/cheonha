@@ -4,7 +4,16 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>천하운수 정산관리</title>
+    <title>CLEVER</title>
+    <!--
+      VWorld 2D 지도 API 2.0 부트스트랩
+      내부적으로 document.write() 로 jQuery / OpenLayers 3.10.1 / vw.ol3.Map 을 순차 로드하기 때문에
+      반드시 초기 HTML 파싱 시점에 포함되어야 합니다. (Vue mount 이후 동적 삽입은 무시됨)
+    -->
+    <script
+      type="text/javascript"
+      src="https://map.vworld.kr/js/vworldMapInit.js.do?version=2.0&apiKey=%VITE_VWORLD_API_KEY%"
+    ></script>
   </head>
   <body>
     <div id="app"></div>

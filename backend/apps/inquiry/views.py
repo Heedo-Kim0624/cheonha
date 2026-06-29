@@ -9,6 +9,8 @@ from .models import SettlementInquiry, InquiryMessage
 from .serializers import SettlementInquirySerializer, InquiryMessageSerializer
 
 from apps.crew.models import CrewMember
+from apps.accounts.models import Team
+from apps.common.company_scope import get_company_app_from_request
 from apps.settlement.models import Settlement, SettlementDetail
 
 
@@ -20,6 +22,12 @@ class SettlementInquiryViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         qs = SettlementInquiry.objects.all().prefetch_related('messages')
+        qs = qs.filter(
+            team_name__in=Team.objects.filter(
+                company_app=get_company_app_from_request(self.request),
+                is_active=True,
+            ).values_list('name', flat=True)
+        )
         team_name = self.request.query_params.get('team_name')
         status_filter = self.request.query_params.get('status')
         if team_name:
@@ -190,10 +198,38 @@ class SettlementInquiryViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'])
     def counts(self, request):
         """카운트 (전체/미응답)"""
-        qs = SettlementInquiry.objects.all()
+        qs = SettlementInquiry.objects.filter(
+            team_name__in=Team.objects.filter(
+                company_app=get_company_app_from_request(request),
+                is_active=True,
+            ).values_list('name', flat=True)
+        )
         team_name = request.query_params.get('team_name')
         if team_name:
             qs = qs.filter(team_name=team_name)
         total = qs.count()
-        open_count = qs.filter(last_by='crew').exclude(status='READ').count()
-        return Response({'total': total, 'open': open_count})
+        open_qs = qs.filter(last_by='crew').exclude(status='READ')
+        latest_open = open_qs.order_by('-updated_at', '-created_at').first()
+        latest_items = []
+        for inquiry in open_qs.order_by('-updated_at', '-created_at')[:5]:
+            latest_message = inquiry.messages.order_by('-created_at').first()
+            latest_items.append({
+                'id': inquiry.id,
+                'team_name': inquiry.team_name,
+                'crew_name': inquiry.crew_name,
+                'dispatch_date': inquiry.dispatch_date,
+                'status': inquiry.status,
+                'last_by': inquiry.last_by,
+                'created_at': inquiry.created_at,
+                'updated_at': inquiry.updated_at,
+                'latest_message': latest_message.content if latest_message else '',
+                'latest_message_at': latest_message.created_at if latest_message else None,
+            })
+        return Response({
+            'total': total,
+            'open': open_qs.count(),
+            'latest_open_id': latest_open.id if latest_open else None,
+            'latest_open_team': latest_open.team_name if latest_open else '',
+            'latest_open_crew': latest_open.crew_name if latest_open else '',
+            'latest_open_items': latest_items,
+        })

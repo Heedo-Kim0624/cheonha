@@ -4,6 +4,10 @@ export const login = (email, password) => {
   return client.post('/auth/login/', { email, password })
 }
 
+export const cleverLogin = (email, password) => {
+  return client.post('/auth/clever-login/', { email, password })
+}
+
 export const logout = () => {
   return client.post('/auth/logout/')
 }

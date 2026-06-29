@@ -1,26 +1,66 @@
-import React, { useEffect, useState } from "react";
-import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
+import React, { useCallback, useEffect, useState } from "react";
+import { ActivityIndicator, AppState, StyleSheet, Text, View } from "react-native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
-import { RootStackParamList } from "./types";
-import LoginScreen from "../screens/LoginScreen";
+
 import CalendarScreen from "../screens/CalendarScreen";
-import {
-  clearTokens,
-  hasStoredSession,
-  restoreStoredSession,
-} from "../services/api";
+import LoginScreen from "../screens/LoginScreen";
+import PermissionGateScreen from "../screens/PermissionGateScreen";
+import SignupScreen from "../screens/SignupScreen";
+import { clearTokens, hasStoredSession, restoreStoredSession } from "../services/api";
+import { useAppMessages } from "../services/appMessages";
+import { getAppEntryPermissionStatus } from "../services/workSession";
 import { colors, typography } from "../theme";
+import { RootStackParamList } from "./types";
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
 export default function RootNavigator() {
+  const { message } = useAppMessages();
+  const [permissionsResolved, setPermissionsResolved] = useState(false);
+  const [permissionsGranted, setPermissionsGranted] = useState(false);
   const [bootReady, setBootReady] = useState(false);
   const [initialRoute, setInitialRoute] =
     useState<keyof RootStackParamList>("Login");
   const [calendarParams, setCalendarParams] =
     useState<RootStackParamList["Calendar"]>();
 
+  const resolvePermissions = useCallback(async () => {
+    const status = await getAppEntryPermissionStatus();
+    setPermissionsGranted(status.allGranted);
+    setPermissionsResolved(true);
+    return status.allGranted;
+  }, []);
+
   useEffect(() => {
+    void resolvePermissions();
+  }, [resolvePermissions]);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (nextState) => {
+      if (nextState !== "active") {
+        return;
+      }
+
+      void (async () => {
+        const granted = await resolvePermissions();
+        if (!granted) {
+          setBootReady(false);
+          setInitialRoute("Login");
+          setCalendarParams(undefined);
+        }
+      })();
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [resolvePermissions]);
+
+  useEffect(() => {
+    if (!permissionsGranted) {
+      return;
+    }
+
     let mounted = true;
 
     (async () => {
@@ -34,7 +74,9 @@ export default function RootNavigator() {
       }
 
       const profileRes = await restoreStoredSession();
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
 
       if (profileRes.data) {
         setInitialRoute("Calendar");
@@ -54,13 +96,33 @@ export default function RootNavigator() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [permissionsGranted]);
+
+  if (!permissionsResolved) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color={colors.accentBlue} />
+        <Text style={styles.loadingText}>{message("root_permission_loading_text", "권한 상태 확인 중...")}</Text>
+      </View>
+    );
+  }
+
+  if (!permissionsGranted) {
+    return (
+      <PermissionGateScreen
+        onGranted={() => {
+          setPermissionsGranted(true);
+          setBootReady(false);
+        }}
+      />
+    );
+  }
 
   if (!bootReady) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={colors.accentBlue} />
-        <Text style={styles.loadingText}>로그인 상태 확인 중...</Text>
+        <Text style={styles.loadingText}>{message("root_login_loading_text", "로그인 상태 확인 중...")}</Text>
       </View>
     );
   }
@@ -71,6 +133,7 @@ export default function RootNavigator() {
       screenOptions={{ headerShown: false }}
     >
       <Stack.Screen name="Login" component={LoginScreen} />
+      <Stack.Screen name="Signup" component={SignupScreen} />
       <Stack.Screen
         name="Calendar"
         component={CalendarScreen}

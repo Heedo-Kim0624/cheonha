@@ -6,6 +6,8 @@ class KPISerializer(serializers.Serializer):
     total_settlements = serializers.IntegerField()
     total_revenue = serializers.DecimalField(max_digits=12, decimal_places=0)
     total_paid = serializers.DecimalField(max_digits=12, decimal_places=0)
+    total_overtime = serializers.DecimalField(max_digits=12, decimal_places=0, required=False)
+    total_other_cost = serializers.DecimalField(max_digits=12, decimal_places=0, required=False)
     total_profit = serializers.DecimalField(max_digits=12, decimal_places=0)
     active_crews = serializers.IntegerField()
     active_regions = serializers.IntegerField()
